@@ -11,6 +11,7 @@ import {
   filterMembers,
   hasScope,
   LOG_SCOPE,
+  OFFICER_SCOPE,
   sanitizeMembers
 } from './worker-core.js';
 
@@ -32,9 +33,10 @@ test('faction capability never makes a non-admin an admin', () => {
   assert.equal(hasScope({ user_id:3853023, scopes:['admin.*'] }, 'admin.*'), true);
 });
 
-test('War logs require their explicit scope or the sole administrator wildcard', () => {
-  assert.equal(hasScope({ user_id:12, scopes:['slink.war'] }, LOG_SCOPE), false);
-  assert.equal(hasScope({ user_id:12, scopes:[LOG_SCOPE] }, LOG_SCOPE), true);
+test('War officer access is distinct from ordinary product and legacy log scopes', () => {
+  assert.equal(hasScope({ user_id:12, scopes:['slink.war'] }, OFFICER_SCOPE), false);
+  assert.equal(hasScope({ user_id:12, scopes:[LOG_SCOPE] }, OFFICER_SCOPE), false);
+  assert.equal(hasScope({ user_id:12, scopes:[OFFICER_SCOPE] }, OFFICER_SCOPE), true);
   assert.equal(hasScope({ user_id:3853023, scopes:['admin.*'] }, 'admin.permissions'), true);
   assert.equal(hasScope({ user_id:12, scopes:['admin.*'] }, 'admin.permissions'), false);
 });
@@ -93,4 +95,12 @@ test('keeps live War responses available when historical D1 log storage is unava
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
   assert.match(worker, /storedAvailable:!storedResult\.error/);
   assert.match(worker, /Historical War log storage is unavailable\. Live targets and retals remain available\./);
+});
+
+test('keeps faction-wide config and med-out claims in the per-war coordinator', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS med_out_claims/);
+  assert.match(worker, /async updateConfig\(session, input = \{\}\)/);
+  assert.match(worker, /async updateClaim\(session, input = \{\}\)/);
+  assert.match(worker, /canViewLogs:officer/);
 });

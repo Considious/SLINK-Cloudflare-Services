@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   ADMIN_SCOPE,
   FACTION_SCOPE,
-  LOG_SCOPE,
+  OFFICER_SCOPE,
   SOLE_ADMIN_USER_ID,
   WAR_SCOPE,
   attackEnded,
@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.2.2-resilient-log-storage';
+const WORKER_VERSION = '0.3.0-officer-coordination';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -33,7 +33,7 @@ const encoder = new TextEncoder();
 const ASSIGNABLE_SCOPES = Object.freeze([
   Object.freeze({ scope:'slink.level', title:'SLINK Leveling', description:'Use SLINK Leveling and receive shared leveling targets.' }),
   Object.freeze({ scope:'slink.war', title:'SLINK War', description:'Use shared War targets, status collection, and retaliation alerts.' }),
-  Object.freeze({ scope:LOG_SCOPE, title:'SLINK War Logs', description:'View retained SLINK War loss, escape, and online-hit summaries.' })
+  Object.freeze({ scope:OFFICER_SCOPE, title:'SLINK War Officer', description:'Control faction-wide War mode and view retained War logs.' })
 ]);
 
 const WAR_TERMS_SUMMARY =
@@ -82,13 +82,17 @@ function validWarId(value) {
 }
 
 function sessionView(session) {
+  const admin = hasScope(session, ADMIN_SCOPE);
+  const officer = admin || hasScope(session, OFFICER_SCOPE);
   return {
     userId:Number(session.user_id),
+    userName:String(session.user_name || `Player ${session.user_id}`).slice(0, 80),
     factionId:Number(session.faction_id),
     sessionId:String(session.session_id),
     factionCapable:hasScope(session, FACTION_SCOPE),
-    admin:hasScope(session, ADMIN_SCOPE),
-    canViewLogs:hasScope(session, LOG_SCOPE) || hasScope(session, ADMIN_SCOPE)
+    admin,
+    officer,
+    canViewLogs:officer
   };
 }
 
@@ -131,6 +135,15 @@ export class WarCoordinator extends DurableObject {
           payload_json TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_retals_active ON retals(expires_at, resolved_at);
+        CREATE TABLE IF NOT EXISTS med_out_claims (
+          target_id INTEGER PRIMARY KEY,
+          target_name TEXT NOT NULL,
+          claimed_by_id INTEGER NOT NULL,
+          claimed_by_name TEXT NOT NULL,
+          claimed_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_med_out_claims_expiry ON med_out_claims(expires_at);
         CREATE TABLE IF NOT EXISTS pending_aggregates (
           aggregate_key TEXT PRIMARY KEY,
           bucket_start INTEGER NOT NULL,
@@ -170,6 +183,93 @@ export class WarCoordinator extends DurableObject {
       id, String(own), String(opponent), String(Date.now())
     );
     return { warId:id, ownFactionId:own, opponentFactionId:opponent };
+  }
+
+  sharedConfig() {
+    const meta = this.metadata();
+    const storedIdle = Number(meta.idle_minutes);
+    return {
+      mode:meta.war_mode === 'termed' ? 'termed' : 'war',
+      idleMinutes:Number.isFinite(storedIdle) ? Math.max(0, Math.min(60, storedIdle)) : 5,
+      updatedBy:positiveInteger(meta.config_updated_by),
+      updatedAt:Math.max(0, Number(meta.config_updated_at) || 0)
+    };
+  }
+
+  async updateConfig(session, input = {}) {
+    const state = this.initialize(input?.warId, session.factionId, input?.opponentFactionId);
+    if (!session.officer) throw new Error(`${OFFICER_SCOPE} permission is required to change faction-wide War settings.`);
+    const mode = input?.mode === 'termed' ? 'termed' : input?.mode === 'war' ? 'war' : null;
+    if (!mode) throw new Error('War mode must be war or termed.');
+    const idleMinutes = Math.max(0, Math.min(60, Number(input?.idleMinutes) || 0));
+    const now = Date.now();
+    this.ctx.storage.sql.exec(`
+      INSERT INTO metadata(key, value) VALUES
+        ('war_mode', ?), ('idle_minutes', ?), ('config_updated_by', ?), ('config_updated_at', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `, mode, String(idleMinutes), String(session.userId), String(now));
+    return { ok:true, ...state, config:this.sharedConfig() };
+  }
+
+  async assertFaction(session, warId) {
+    const meta = this.metadata();
+    if (String(meta.war_id || '') !== validWarId(warId) || Number(meta.own_faction_id) !== Number(session.factionId)) {
+      throw new Error('This War coordinator does not belong to your faction.');
+    }
+    return true;
+  }
+
+  activeClaims(now = Date.now()) {
+    this.ctx.storage.sql.exec('DELETE FROM med_out_claims WHERE expires_at <= ?', now);
+    return this.ctx.storage.sql.exec(`
+      SELECT target_id, target_name, claimed_by_id, claimed_by_name, claimed_at, expires_at
+      FROM med_out_claims
+      WHERE expires_at > ?
+      ORDER BY expires_at ASC, target_name ASC
+    `, now).toArray().map(row => ({
+      targetId:Number(row.target_id),
+      targetName:String(row.target_name),
+      claimedById:Number(row.claimed_by_id),
+      claimedByName:String(row.claimed_by_name),
+      claimedAt:Number(row.claimed_at),
+      expiresAt:Number(row.expires_at)
+    }));
+  }
+
+  async updateClaim(session, input = {}) {
+    const state = this.initialize(input?.warId, session.factionId, input?.opponentFactionId);
+    const targetId = positiveInteger(input?.targetId ?? input?.target_id);
+    if (!targetId) throw new Error('A valid med-out target is required.');
+    const operation = input?.operation === 'release' ? 'release' : 'claim';
+    const existing = this.ctx.storage.sql.exec(
+      'SELECT claimed_by_id FROM med_out_claims WHERE target_id = ? AND expires_at > ?',
+      targetId, Date.now()
+    ).toArray()[0];
+    if (operation === 'release') {
+      if (existing && Number(existing.claimed_by_id) !== session.userId && !session.officer) {
+        throw new Error('Only the claiming member or a SLINK War officer can release this claim.');
+      }
+      this.ctx.storage.sql.exec('DELETE FROM med_out_claims WHERE target_id = ?', targetId);
+      return { ok:true, ...state, claims:this.activeClaims() };
+    }
+    if (existing && Number(existing.claimed_by_id) !== session.userId) throw new Error('That med-out target is already claimed.');
+    const now = Date.now();
+    const status = this.statusMap(state.opponentFactionId).byId.get(targetId);
+    const hospitalUntil = Math.max(0, Number(status?.statusUntil) || 0) * 1000;
+    const requestedMinutes = Math.max(5, Math.min(180, Number(input?.minutes) || 30));
+    const expiresAt = Math.min(now + 3 * 60 * 60 * 1000, Math.max(now + requestedMinutes * 60 * 1000, hospitalUntil ? hospitalUntil + 10 * 60 * 1000 : 0));
+    const targetName = String(input?.targetName || input?.target_name || status?.name || `Player ${targetId}`).slice(0, 80);
+    this.ctx.storage.sql.exec(`
+      INSERT INTO med_out_claims(target_id, target_name, claimed_by_id, claimed_by_name, claimed_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(target_id) DO UPDATE SET
+        target_name = excluded.target_name,
+        claimed_by_id = excluded.claimed_by_id,
+        claimed_by_name = excluded.claimed_by_name,
+        claimed_at = excluded.claimed_at,
+        expires_at = excluded.expires_at
+    `, targetId, targetName, session.userId, session.userName, now, expiresAt);
+    return { ok:true, ...state, claims:this.activeClaims(now) };
   }
 
   collectors(now = Date.now()) {
@@ -324,7 +424,8 @@ export class WarCoordinator extends DurableObject {
     const nowSeconds = Math.floor(Date.now() / 1000);
     this.ctx.storage.sql.exec('DELETE FROM retals WHERE expires_at <= ? OR resolved_at IS NOT NULL', nowSeconds);
     const status = this.statusMap(state.opponentFactionId);
-    const mode = options?.mode === 'termed' ? 'termed' : 'war';
+    const config = this.sharedConfig();
+    const mode = config.mode;
     const retalRows = this.ctx.storage.sql.exec(`
       SELECT payload_json, against_war_opponent
       FROM retals
@@ -342,9 +443,11 @@ export class WarCoordinator extends DurableObject {
       version:WORKER_VERSION,
       ...state,
       mode,
+      config,
       observedAt:status.observedAt,
-      members:filterMembers(status.members, { mode, idleMinutes:options?.idleMinutes }),
+      members:filterMembers(status.members, { mode, idleMinutes:config.idleMinutes }),
       retals,
+      claims:this.activeClaims(),
       pendingLogs:session.canViewLogs ? this.pendingLogs(200) : [],
       collectors:{
         status:Boolean(collectors.publicSessionId),
@@ -467,6 +570,7 @@ async function validateTornKey(apiKey) {
   const keyData = await keyResponse.json().catch(() => null);
   if (!keyResponse.ok || keyData?.error) throw new Error('Torn API key could not be validated.');
   const userId = positiveInteger(keyData?.info?.user?.id);
+  const userName = String(keyData?.info?.user?.name || keyData?.info?.user?.username || `Player ${userId}`).slice(0, 80);
   const factionIdValue = Number(keyData?.info?.user?.faction_id || 0);
   if (!userId || !Number.isInteger(factionIdValue) || factionIdValue < 0) throw new Error('Torn returned an invalid identity.');
   let factionCapable = false;
@@ -479,7 +583,7 @@ async function validateTornKey(apiKey) {
       factionCapable = false;
     }
   }
-  return { userId, factionId:factionIdValue, factionCapable };
+  return { userId, userName, factionId:factionIdValue, factionCapable };
 }
 
 async function handleAuth(request, env) {
@@ -513,6 +617,7 @@ async function handleAuth(request, env) {
     if (!Number.isFinite(exp) || exp <= iat) return json({ ok:false, error:`Your ${WAR_SCOPE} grant has expired.` }, 403);
     const payload = {
       user_id:identity.userId,
+      user_name:identity.userName,
       faction_id:identity.factionId,
       session_id:crypto.randomUUID(),
       terms_version:TERMS_VERSION,
@@ -695,7 +800,7 @@ async function handleRequest(request, env) {
   const session = await authorized(request, env);
   if (!session) return json({ ok:false, error:'A valid SLINK War session is required.' }, 401);
   if (request.method === 'GET' && url.pathname === '/api/session') {
-    return json({ ok:true, user_id:session.user_id, faction_id:session.faction_id, session_id:session.session_id, roles:session.roles, scopes:session.scopes, expires_at:new Date(session.exp * 1000).toISOString() });
+    return json({ ok:true, user_id:session.user_id, user_name:session.user_name, faction_id:session.faction_id, session_id:session.session_id, roles:session.roles, scopes:session.scopes, expires_at:new Date(session.exp * 1000).toISOString() });
   }
   if (url.pathname === '/api/admin/scopes') {
     if (!adminAllowed(session)) return json({ ok:false, error:'admin.* permission is required.' }, 403);
@@ -711,7 +816,7 @@ async function handleRequest(request, env) {
     if (request.method === 'POST') return updateAdminPermissions(env, session, userId, request);
     return json({ ok:false, error:'Method not allowed.' }, 405);
   }
-  const match = url.pathname.match(/^\/api\/wars\/([^/]+)\/(heartbeat|status|attacks|snapshot|logs)$/);
+  const match = url.pathname.match(/^\/api\/wars\/([^/]+)\/(heartbeat|status|attacks|snapshot|logs|config|claims)$/);
   if (!match) return json({ ok:false, error:'Route not found.' }, 404);
   const warId = validWarId(decodeURIComponent(match[1]));
   if (!warId) return json({ ok:false, error:'Invalid war ID.' }, 400);
@@ -719,7 +824,8 @@ async function handleRequest(request, env) {
   const stub = coordinator(env, warId);
   const view = sessionView(session);
   if (action === 'logs' && request.method === 'GET') {
-    if (!view.canViewLogs) return json({ ok:false, error:`${LOG_SCOPE} permission is required to view War logs.`, required_scope:LOG_SCOPE }, 403);
+    if (!view.canViewLogs) return json({ ok:false, error:`${OFFICER_SCOPE} permission is required to view War logs.`, required_scope:OFFICER_SCOPE }, 403);
+    await stub.assertFaction(view, warId);
     return logsResponse(env, stub, warId, url.searchParams.get('limit'), url.searchParams.get('include_stored') !== '0');
   }
   if (action === 'snapshot' && request.method === 'GET') {
@@ -736,6 +842,8 @@ async function handleRequest(request, env) {
   try { body = await readJson(request); } catch (error) { return json({ ok:false, error:errorMessage(error) }, 400); }
   body.warId = warId;
   body.opponentFactionId = positiveInteger(body.opponent_faction_id ?? body.opponentFactionId);
+  if (action === 'config') return json(await stub.updateConfig(view, body));
+  if (action === 'claims') return json(await stub.updateClaim(view, body));
   if (action === 'heartbeat') return json(await stub.heartbeat(view, body));
   if (action === 'status') return json(await stub.submitStatus(view, body));
   if (action === 'attacks') return json(await stub.submitAttacks(view, body));

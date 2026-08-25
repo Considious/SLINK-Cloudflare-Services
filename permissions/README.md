@@ -44,11 +44,13 @@ disabled until that product exists.
 
 Run
 [`migrations/0004-war-service.sql`](migrations/0004-war-service.sql) and then
-[`migrations/0005-permission-catalog.sql`](migrations/0005-permission-catalog.sql)
+[`migrations/0005-permission-catalog.sql`](migrations/0005-permission-catalog.sql), followed by
+[`migrations/0006-war-officer.sql`](migrations/0006-war-officer.sql)
 to add SLINK War storage and the assignable permission catalog used by the
-extension administrator dashboard. `slink.war.log` is not granted to the
-faction automatically: retained War logs require either `admin.*` or a direct
-active `slink.war.log` grant.
+extension administrator dashboard. `slink.war.officer` is not granted to the
+faction automatically: faction-wide War settings and retained logs require
+either `admin.*` or a direct active `slink.war.officer` grant. Legacy
+`slink.war.log` grants are revoked by migration 0006.
 
 The initial migration is additive and rerunnable. It seeds the Slinky's faction
 grant and the sole owner administration grant.

@@ -1,5 +1,6 @@
 export const WAR_SCOPE = 'slink.war';
 export const LOG_SCOPE = 'slink.war.log';
+export const OFFICER_SCOPE = 'slink.war.officer';
 export const FACTION_SCOPE = 'slink.war.faction';
 export const ADMIN_SCOPE = 'admin.*';
 export const SOLE_ADMIN_USER_ID = 3853023;
