@@ -88,3 +88,9 @@ test('aggregate keys share a ten-minute bucket but preserve outcome', () => {
   assert.equal(first, second);
   assert.notEqual(first, third);
 });
+
+test('keeps live War responses available when historical D1 log storage is unavailable', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  assert.match(worker, /storedAvailable:!storedResult\.error/);
+  assert.match(worker, /Historical War log storage is unavailable\. Live targets and retals remain available\./);
+});

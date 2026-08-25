@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.2.1-cloudflare-repo';
+const WORKER_VERSION = '0.2.2-resilient-log-storage';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -583,7 +583,7 @@ function coordinator(env, warId) {
 
 async function logsResponse(env, stub, warId, limit, includeStored = true) {
   const capped = Math.max(1, Math.min(500, Number(limit) || 200));
-  const [stored, pending] = await Promise.all([
+  const [storedResult, pending] = await Promise.all([
     includeStored
       ? env.PERMISSIONS_DB.prepare(`
           SELECT bucket_start, war_date, attacker_id, attacker_name, defender_id,
@@ -593,11 +593,20 @@ async function logsResponse(env, stub, warId, limit, includeStored = true) {
           WHERE war_id = ?
           ORDER BY bucket_start DESC, outcome ASC
           LIMIT ?
-        `).bind(warId, capped).all()
-      : Promise.resolve({ results:[] }),
+        `).bind(warId, capped).all().then(result => ({ result, error:null })).catch(error => ({ result:{ results:[] }, error }))
+      : Promise.resolve({ result:{ results:[] }, error:null }),
     stub.pendingLogs(capped)
   ]);
-  return json({ ok:true, warId, stored:stored.results || [], pending, storedIncluded:includeStored });
+  if (storedResult.error) log('warn', 'historical War logs unavailable', { warId, error:errorMessage(storedResult.error) });
+  return json({
+    ok:true,
+    warId,
+    stored:storedResult.result.results || [],
+    pending,
+    storedIncluded:includeStored,
+    storedAvailable:!storedResult.error,
+    storageWarning:storedResult.error ? 'Historical War log storage is unavailable. Live targets and retals remain available.' : ''
+  });
 }
 
 function adminAllowed(session) {
