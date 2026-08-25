@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.2-cloudflare-repo';
+const WORKER_VERSION = '0.15.3-consent-url-relocation';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -282,6 +282,73 @@ describe('SLINK Leveling Worker', () => {
         assert.equal(
             sessionBody.disclosure_version,
             LEVELING_DISCLOSURE_VERSION
+        );
+    });
+
+
+    it('keeps a valid acceptance when the published terms URL moves', async () => {
+        globalThis.fetch = async () => Response.json({
+            info: { user: { id: 3853023, faction_id: 46978 } }
+        });
+
+        const consentDb = createConsentDatabase();
+        consentDb.sqlite.prepare(`
+            INSERT INTO terms_acceptances (
+                user_id,
+                faction_id,
+                terms_version,
+                document_sha256,
+                document_url,
+                service_id,
+                disclosure_version,
+                disclosure_sha256,
+                accepted_at,
+                client_name,
+                client_version,
+                acceptance_method
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            3853023,
+            46978,
+            TERMS_VERSION,
+            TERMS_DOCUMENT_SHA256,
+            'https://github.com/Considious/Torn-Scripts/blob/main/old-terms-location.md',
+            'slink-leveling-service',
+            LEVELING_DISCLOSURE_VERSION,
+            LEVELING_DISCLOSURE_SHA256,
+            Date.now(),
+            'SLINK Browser Extension',
+            '0.7.0',
+            'explicit_checkbox'
+        );
+
+        const response = await worker.fetch(
+            jsonRequest('https://worker.example/api/auth', {
+                api_key: 'test-torn-key',
+                terms_accepted: true,
+                terms_version: TERMS_VERSION,
+                terms_sha256: TERMS_DOCUMENT_SHA256,
+                disclosure_version: LEVELING_DISCLOSURE_VERSION,
+                disclosure_sha256: LEVELING_DISCLOSURE_SHA256,
+                client_name: 'SLINK Browser Extension',
+                client_version: '0.8.0'
+            }),
+            {
+                DB: createDatabase(),
+                SESSION_SECRET,
+                CONSENT_DB: consentDb,
+                PERMISSIONS_DB: createPermissionsDatabase()
+            }
+        );
+
+        assert.equal(response.status, 200);
+        assert.equal((await response.json()).authenticated, true);
+        assert.equal(
+            consentDb.sqlite
+                .prepare('SELECT COUNT(*) AS count FROM terms_acceptances')
+                .get().count,
+            1,
+            'moving an unchanged terms document must not require a new row'
         );
     });
 

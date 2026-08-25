@@ -1,14 +1,14 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.2-cloudflare-repo
+ * Release: 0.15.3-consent-url-relocation
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.2-cloudflare-repo';
+const WORKER_VERSION = '0.15.3-consent-url-relocation';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -819,7 +819,6 @@ async function recordTermsAcceptance(env, acceptance) {
         .prepare(`
             SELECT
                 document_sha256,
-                document_url,
                 disclosure_sha256
             FROM terms_acceptances
             WHERE user_id = ?1
@@ -837,7 +836,6 @@ async function recordTermsAcceptance(env, acceptance) {
 
     if (
         stored?.document_sha256 !== TERMS_DOCUMENT_SHA256 ||
-        stored?.document_url !== TERMS_URL ||
         stored?.disclosure_sha256 !== LEVELING_DISCLOSURE_SHA256
     ) {
         throw new Error(
