@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.3.0-officer-coordination';
+const WORKER_VERSION = '0.4.0-theme-permissions';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -31,9 +31,12 @@ const ATTACK_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
 const ASSIGNABLE_SCOPES = Object.freeze([
-  Object.freeze({ scope:'slink.level', title:'SLINK Leveling', description:'Use SLINK Leveling and receive shared leveling targets.' }),
-  Object.freeze({ scope:'slink.war', title:'SLINK War', description:'Use shared War targets, status collection, and retaliation alerts.' }),
-  Object.freeze({ scope:OFFICER_SCOPE, title:'SLINK War Officer', description:'Control faction-wide War mode and view retained War logs.' })
+  Object.freeze({ scope:'slink.level', category:'Products', title:'SLINK Leveling', description:'Use SLINK Leveling and receive shared leveling targets.' }),
+  Object.freeze({ scope:'slink.war', category:'Products', title:'SLINK War', description:'Use shared War targets, status collection, and retaliation alerts.' }),
+  Object.freeze({ scope:OFFICER_SCOPE, category:'War permissions', title:'SLINK War Officer', description:'Control faction-wide War mode and view retained War logs.' }),
+  Object.freeze({ scope:'slink.theme.pursuit', category:'Themes', title:'Slinky Pursuit', description:'Use the red, blue, and chrome Slinky Pursuit interface theme.' }),
+  Object.freeze({ scope:'slink.theme.underglow', category:'Themes', title:'Slinky Underglow', description:'Use the glossy black, purple, and green underglow interface theme.' }),
+  Object.freeze({ scope:'slink.theme.black-chrome', category:'Themes', title:'Slinky Black Chrome', description:'Use the black, gunmetal, and polished-silver interface theme.' })
 ]);
 
 const WAR_TERMS_SUMMARY =

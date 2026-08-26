@@ -55,6 +55,13 @@ either `admin.*` or a direct active `slink.war.officer` grant. Legacy
 The initial migration is additive and rerunnable. It seeds the Slinky's faction
 grant and the sole owner administration grant.
 
+Apply [`migrations/0007-theme-permissions.sql`](migrations/0007-theme-permissions.sql)
+to add the `Themes` catalog category and the separately assignable
+`slink.theme.pursuit`, `slink.theme.underglow`, and
+`slink.theme.black-chrome` cosmetic entitlements. These rows use the same
+`user_scope_grants` table and authentication flow as every other direct SLINK
+permission; no additional database or permission service is required.
+
 ## Grant paid or manual Leveling access
 
 All timestamps use Unix milliseconds. Replace the example user, expiration,

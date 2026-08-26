@@ -104,3 +104,15 @@ test('keeps faction-wide config and med-out claims in the per-war coordinator', 
   assert.match(worker, /async updateClaim\(session, input = \{\}\)/);
   assert.match(worker, /canViewLogs:officer/);
 });
+
+test('publishes separately assignable theme permissions in the existing catalog', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  for (const scope of [
+    'slink.theme.pursuit',
+    'slink.theme.underglow',
+    'slink.theme.black-chrome'
+  ]) {
+    assert.match(worker, new RegExp(scope.replaceAll('.', '\\.')));
+  }
+  assert.match(worker, /category:'Themes'/);
+});
