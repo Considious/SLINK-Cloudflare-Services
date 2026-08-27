@@ -1,14 +1,14 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.4-permission-diagnostics
+ * Release: 0.15.5-auth-stage-diagnostics
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.4-permission-diagnostics';
+const WORKER_VERSION = '0.15.5-auth-stage-diagnostics';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -580,6 +580,9 @@ function handleTerms() {
 // ================================================================
 
 async function handleAuthentication(request, env) {
+    let authenticationStage = 'service configuration';
+    let authenticatedUserId = 0;
+
     try {
         if (!env.SESSION_SECRET) {
             return jsonResponse(
@@ -601,6 +604,7 @@ async function handleAuthentication(request, env) {
             );
         }
 
+        authenticationStage = 'request validation';
         let body;
 
         try {
@@ -652,6 +656,7 @@ async function handleAuthentication(request, env) {
             );
         }
 
+        authenticationStage = 'Torn identity validation';
         const tornResponse = await fetch(
             'https://api.torn.com/v2/key/info',
             {
@@ -690,6 +695,7 @@ async function handleAuthentication(request, env) {
 
         const userId = Number(tornData?.info?.user?.id);
         const factionId = Number(tornData?.info?.user?.faction_id || 0);
+        authenticatedUserId = Number.isInteger(userId) ? userId : 0;
 
         if (!Number.isInteger(userId) || userId <= 0) {
             return jsonResponse(
@@ -718,6 +724,7 @@ async function handleAuthentication(request, env) {
                 error: 'Permission storage is not configured.'
             }, 500);
         }
+        authenticationStage = 'permission lookup';
         const productPermissions = await loadUserPermissions(
             env,
             userId,
@@ -749,6 +756,7 @@ async function handleAuthentication(request, env) {
         }
         const sessionId = crypto.randomUUID();
 
+        authenticationStage = 'consent recording';
         try {
             await recordTermsAcceptance(env, {
                 userId,
@@ -765,7 +773,7 @@ async function handleAuthentication(request, env) {
             return jsonResponse(
                 {
                     ok: false,
-                    error: 'Terms acceptance could not be recorded. Access was not granted.',
+                    error: 'Authentication failed during consent recording.',
                     detail: errorMessage(error)
                 },
                 503
@@ -785,6 +793,7 @@ async function handleAuthentication(request, env) {
             exp: expiresAt
         };
 
+        authenticationStage = 'session signing';
         const sessionToken = await createSessionToken(
             sessionPayload,
             env.SESSION_SECRET
@@ -806,10 +815,17 @@ async function handleAuthentication(request, env) {
             session_token: sessionToken
         });
     } catch (error) {
+        console.error(JSON.stringify({
+            event: 'slink_leveling_authentication_failed',
+            version: WORKER_VERSION,
+            stage: authenticationStage,
+            user_id: authenticatedUserId || null,
+            error: errorMessage(error)
+        }));
         return jsonResponse(
             {
                 ok: false,
-                error: 'Authentication failed.',
+                error: `Authentication failed during ${authenticationStage}.`,
                 detail: errorMessage(error)
             },
             500

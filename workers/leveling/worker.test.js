@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.4-permission-diagnostics';
+const WORKER_VERSION = '0.15.5-auth-stage-diagnostics';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -451,6 +451,25 @@ describe('SLINK Leveling Worker', () => {
         const factionResponse = await authenticate();
         assert.equal(factionResponse.status, 200);
         assert.deepEqual((await factionResponse.json()).scopes, ['slink.level']);
+
+        const workingPermissionsDb = env.PERMISSIONS_DB;
+        env.PERMISSIONS_DB = {
+            prepare() {
+                throw new Error('Test permission lookup failure.');
+            }
+        };
+        const diagnosticResponse = await authenticate();
+        const diagnosticBody = await diagnosticResponse.json();
+        assert.equal(diagnosticResponse.status, 500);
+        assert.equal(
+            diagnosticBody.error,
+            'Authentication failed during permission lookup.'
+        );
+        assert.equal(
+            diagnosticBody.detail,
+            'Test permission lookup failure.'
+        );
+        env.PERMISSIONS_DB = workingPermissionsDb;
 
         tornIdentity = { id: 7002, faction_id: 12345 };
         const unentitledResponse = await authenticate();
