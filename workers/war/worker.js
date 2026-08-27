@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.4.0-theme-permissions';
+const WORKER_VERSION = '0.5.0-war-goals-remote-themes';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -30,13 +30,26 @@ const CLIENT_RETENTION_MS = 2 * 60 * 1000;
 const ATTACK_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
-const ASSIGNABLE_SCOPES = Object.freeze([
+const BASE_ASSIGNABLE_SCOPES = Object.freeze([
   Object.freeze({ scope:'slink.level', category:'Products', title:'SLINK Leveling', description:'Use SLINK Leveling and receive shared leveling targets.' }),
   Object.freeze({ scope:'slink.war', category:'Products', title:'SLINK War', description:'Use shared War targets, status collection, and retaliation alerts.' }),
-  Object.freeze({ scope:OFFICER_SCOPE, category:'War permissions', title:'SLINK War Officer', description:'Control faction-wide War mode and view retained War logs.' }),
+  Object.freeze({ scope:OFFICER_SCOPE, category:'War permissions', title:'SLINK War Officer', description:'Control faction-wide War mode, inside-hit goals, med-out assignments, and retained War logs.' })
+]);
+const FALLBACK_THEME_SCOPES = Object.freeze([
   Object.freeze({ scope:'slink.theme.pursuit', category:'Themes', title:'Slinky Pursuit', description:'Use the red, blue, and chrome Slinky Pursuit interface theme.' }),
   Object.freeze({ scope:'slink.theme.underglow', category:'Themes', title:'Slinky Underglow', description:'Use the glossy black, purple, and green underglow interface theme.' }),
   Object.freeze({ scope:'slink.theme.black-chrome', category:'Themes', title:'Slinky Black Chrome', description:'Use the black, gunmetal, and polished-silver interface theme.' })
+]);
+const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
+const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
+const THEME_REFRESH_MS = 15 * 60 * 1000;
+const THEME_TOKEN_NAMES = new Set([
+  '--slink-bg', '--slink-bg-raised', '--slink-bg-control', '--slink-surface', '--slink-card',
+  '--slink-control', '--slink-border', '--slink-border-soft', '--slink-text', '--slink-muted',
+  '--slink-accent', '--slink-accent-alt', '--slink-ready', '--slink-warning', '--slink-error',
+  '--slink-danger-bg', '--slink-link', '--slink-shadow', '--slink-page-bg', '--slink-topbar-bg',
+  '--slink-panel-bg', '--slink-button-bg', '--slink-selected-bg', '--slink-mark-bg',
+  '--slink-glow-left', '--slink-glow-right', '--slink-metal', '--slink-metal-dark'
 ]);
 
 const WAR_TERMS_SUMMARY =
@@ -74,6 +87,33 @@ async function readJson(request) {
   return text ? JSON.parse(text) : {};
 }
 
+async function readLimitedResponseText(response, maximumBytes) {
+  const contentLength = Number(response.headers.get('Content-Length') || 0);
+  if (contentLength > maximumBytes) throw new Error('Response body is too large.');
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (encoder.encode(text).byteLength > maximumBytes) throw new Error('Response body is too large.');
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      throw new Error('Response body is too large.');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
 function positiveInteger(value) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
@@ -82,6 +122,73 @@ function positiveInteger(value) {
 function validWarId(value) {
   const id = String(value || '').trim();
   return /^[a-zA-Z0-9:_-]{3,120}$/.test(id) ? id : '';
+}
+
+function validateThemeCatalog(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Theme catalog must be an object.');
+  if (Number(value.schemaVersion) !== 1) throw new Error('Unsupported theme catalog schema.');
+  const revision = String(value.revision || '').trim();
+  if (!/^[a-zA-Z0-9._:-]{1,80}$/.test(revision)) throw new Error('Theme catalog revision is invalid.');
+  if (!Array.isArray(value.themes) || !value.themes.length || value.themes.length > 32) throw new Error('Theme catalog must contain between 1 and 32 themes.');
+  const seen = new Set();
+  const themes = value.themes.map(entry => {
+    const id = String(entry?.id || '').trim();
+    const label = String(entry?.label || '').trim();
+    const description = String(entry?.description || '').trim();
+    const scope = entry?.scope === null || entry?.scope === undefined ? null : String(entry.scope).trim();
+    const ornament = entry?.ornament === 'coil' ? 'coil' : 'none';
+    if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(id) || seen.has(id)) throw new Error('Theme ID is invalid or duplicated.');
+    if (!label || label.length > 80 || !description || description.length > 180) throw new Error(`Theme ${id} has invalid display text.`);
+    if (scope !== null && !/^slink\.theme\.[a-z0-9][a-z0-9-]{0,63}$/.test(scope)) throw new Error(`Theme ${id} has an invalid permission scope.`);
+    if (!Array.isArray(entry?.swatch) || entry.swatch.length !== 3 || !entry.swatch.every(color => /^#[0-9a-fA-F]{6}$/.test(String(color)))) throw new Error(`Theme ${id} must provide three hexadecimal swatches.`);
+    if (!entry?.tokens || typeof entry.tokens !== 'object' || Array.isArray(entry.tokens)) throw new Error(`Theme ${id} has invalid visual tokens.`);
+    const themeTokens = {};
+    for (const [name, raw] of Object.entries(entry.tokens)) {
+      const token = String(raw || '').trim();
+      if (!THEME_TOKEN_NAMES.has(name) || !token || token.length > 320 || !/^[a-zA-Z0-9#(),.%+\-\s]+$/.test(token) || /url\s*\(|expression\s*\(/i.test(token)) throw new Error(`Theme ${id} contains a disallowed visual token.`);
+      themeTokens[name] = token;
+    }
+    seen.add(id);
+    return { id, label, description, scope, swatch:entry.swatch.map(String), ornament, tokens:themeTokens };
+  });
+  if (!themes.some(theme => theme.id === 'slink-dark' && theme.scope === null)) throw new Error('Theme catalog must include the free slink-dark fallback.');
+  return { schemaVersion:1, revision, updatedAt:String(value.updatedAt || ''), themes };
+}
+
+async function fetchThemeCatalog(env, force = false) {
+  const now = Date.now();
+  if (env.THEME_CATALOG && !force) {
+    const cached = await env.THEME_CATALOG.get(THEME_CATALOG_KV_KEY, 'json').catch(() => null);
+    if (cached?.catalog && now - Number(cached.fetchedAt) < THEME_REFRESH_MS) return { catalog:validateThemeCatalog(cached.catalog), source:'kv' };
+  }
+  const response = await fetch(THEME_CATALOG_URL, {
+    headers:{ Accept:'application/json', 'User-Agent':'SLINK-War-Theme-Catalog' },
+    cf:{ cacheEverything:true, cacheTtl:Math.floor(THEME_REFRESH_MS / 1000) }
+  });
+  if (!response.ok) throw new Error(`Theme catalog fetch failed (${response.status}).`);
+  const text = await readLimitedResponseText(response, MAX_BODY_BYTES);
+  const catalog = validateThemeCatalog(JSON.parse(text));
+  if (env.THEME_CATALOG) {
+    await env.THEME_CATALOG.put(THEME_CATALOG_KV_KEY, JSON.stringify({ fetchedAt:now, catalog }))
+      .catch(error => log('warn', 'theme KV update failed', { error:errorMessage(error) }));
+  }
+  return { catalog, source:env.THEME_CATALOG ? 'github+kv' : 'github' };
+}
+
+async function assignableScopes(env) {
+  try {
+    const { catalog } = await fetchThemeCatalog(env);
+    const themeScopes = catalog.themes.filter(theme => theme.scope).map(theme => ({
+      scope:theme.scope,
+      category:'Themes',
+      title:theme.label,
+      description:theme.description
+    }));
+    return [...BASE_ASSIGNABLE_SCOPES, ...themeScopes];
+  } catch (error) {
+    log('warn', 'theme permission catalog fallback', { error:errorMessage(error) });
+    return [...BASE_ASSIGNABLE_SCOPES, ...FALLBACK_THEME_SCOPES];
+  }
 }
 
 function sessionView(session) {
@@ -143,6 +250,8 @@ export class WarCoordinator extends DurableObject {
           target_name TEXT NOT NULL,
           claimed_by_id INTEGER NOT NULL,
           claimed_by_name TEXT NOT NULL,
+          assigned_by_id INTEGER,
+          assigned_by_name TEXT,
           claimed_at INTEGER NOT NULL,
           expires_at INTEGER NOT NULL
         );
@@ -161,6 +270,9 @@ export class WarCoordinator extends DurableObject {
           last_seen_at INTEGER NOT NULL
         );
       `);
+      const claimColumns = new Set(this.ctx.storage.sql.exec('PRAGMA table_info(med_out_claims)').toArray().map(row => String(row.name)));
+      if (!claimColumns.has('assigned_by_id')) this.ctx.storage.sql.exec('ALTER TABLE med_out_claims ADD COLUMN assigned_by_id INTEGER');
+      if (!claimColumns.has('assigned_by_name')) this.ctx.storage.sql.exec('ALTER TABLE med_out_claims ADD COLUMN assigned_by_name TEXT');
     });
   }
 
@@ -194,6 +306,7 @@ export class WarCoordinator extends DurableObject {
     return {
       mode:meta.war_mode === 'termed' ? 'termed' : 'war',
       idleMinutes:Number.isFinite(storedIdle) ? Math.max(0, Math.min(60, storedIdle)) : 5,
+      insideHitCap:Math.max(0, Math.min(9999, Number(meta.inside_hit_cap) || 0)),
       updatedBy:positiveInteger(meta.config_updated_by),
       updatedAt:Math.max(0, Number(meta.config_updated_at) || 0)
     };
@@ -205,12 +318,13 @@ export class WarCoordinator extends DurableObject {
     const mode = input?.mode === 'termed' ? 'termed' : input?.mode === 'war' ? 'war' : null;
     if (!mode) throw new Error('War mode must be war or termed.');
     const idleMinutes = Math.max(0, Math.min(60, Number(input?.idleMinutes) || 0));
+    const insideHitCap = Math.max(0, Math.min(9999, Math.floor(Number(input?.insideHitCap) || 0)));
     const now = Date.now();
     this.ctx.storage.sql.exec(`
       INSERT INTO metadata(key, value) VALUES
-        ('war_mode', ?), ('idle_minutes', ?), ('config_updated_by', ?), ('config_updated_at', ?)
+        ('war_mode', ?), ('idle_minutes', ?), ('inside_hit_cap', ?), ('config_updated_by', ?), ('config_updated_at', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `, mode, String(idleMinutes), String(session.userId), String(now));
+    `, mode, String(idleMinutes), String(insideHitCap), String(session.userId), String(now));
     return { ok:true, ...state, config:this.sharedConfig() };
   }
 
@@ -225,7 +339,7 @@ export class WarCoordinator extends DurableObject {
   activeClaims(now = Date.now()) {
     this.ctx.storage.sql.exec('DELETE FROM med_out_claims WHERE expires_at <= ?', now);
     return this.ctx.storage.sql.exec(`
-      SELECT target_id, target_name, claimed_by_id, claimed_by_name, claimed_at, expires_at
+      SELECT target_id, target_name, claimed_by_id, claimed_by_name, assigned_by_id, assigned_by_name, claimed_at, expires_at
       FROM med_out_claims
       WHERE expires_at > ?
       ORDER BY expires_at ASC, target_name ASC
@@ -234,6 +348,8 @@ export class WarCoordinator extends DurableObject {
       targetName:String(row.target_name),
       claimedById:Number(row.claimed_by_id),
       claimedByName:String(row.claimed_by_name),
+      assignedById:positiveInteger(row.assigned_by_id),
+      assignedByName:String(row.assigned_by_name || ''),
       claimedAt:Number(row.claimed_at),
       expiresAt:Number(row.expires_at)
     }));
@@ -255,7 +371,10 @@ export class WarCoordinator extends DurableObject {
       this.ctx.storage.sql.exec('DELETE FROM med_out_claims WHERE target_id = ?', targetId);
       return { ok:true, ...state, claims:this.activeClaims() };
     }
-    if (existing && Number(existing.claimed_by_id) !== session.userId) throw new Error('That med-out target is already claimed.');
+    const requestedAssigneeId = positiveInteger(input?.assigneeId ?? input?.assignee_id) || session.userId;
+    const requestedAssigneeName = String(input?.assigneeName || input?.assignee_name || (requestedAssigneeId === session.userId ? session.userName : `Player ${requestedAssigneeId}`)).trim().slice(0, 80);
+    if (requestedAssigneeId !== session.userId && !session.officer) throw new Error(`${OFFICER_SCOPE} permission is required to assign another member.`);
+    if (existing && Number(existing.claimed_by_id) !== session.userId && !session.officer) throw new Error('That med-out target is already claimed.');
     const now = Date.now();
     const status = this.statusMap(state.opponentFactionId).byId.get(targetId);
     const hospitalUntil = Math.max(0, Number(status?.statusUntil) || 0) * 1000;
@@ -263,15 +382,17 @@ export class WarCoordinator extends DurableObject {
     const expiresAt = Math.min(now + 3 * 60 * 60 * 1000, Math.max(now + requestedMinutes * 60 * 1000, hospitalUntil ? hospitalUntil + 10 * 60 * 1000 : 0));
     const targetName = String(input?.targetName || input?.target_name || status?.name || `Player ${targetId}`).slice(0, 80);
     this.ctx.storage.sql.exec(`
-      INSERT INTO med_out_claims(target_id, target_name, claimed_by_id, claimed_by_name, claimed_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO med_out_claims(target_id, target_name, claimed_by_id, claimed_by_name, assigned_by_id, assigned_by_name, claimed_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(target_id) DO UPDATE SET
         target_name = excluded.target_name,
         claimed_by_id = excluded.claimed_by_id,
         claimed_by_name = excluded.claimed_by_name,
+        assigned_by_id = excluded.assigned_by_id,
+        assigned_by_name = excluded.assigned_by_name,
         claimed_at = excluded.claimed_at,
         expires_at = excluded.expires_at
-    `, targetId, targetName, session.userId, session.userName, now, expiresAt);
+    `, targetId, targetName, requestedAssigneeId, requestedAssigneeName, session.userId, session.userName, now, expiresAt);
     return { ok:true, ...state, claims:this.activeClaims(now) };
   }
 
@@ -721,7 +842,8 @@ function adminAllowed(session) {
   return Number(session?.user_id) === SOLE_ADMIN_USER_ID && hasScope(session, ADMIN_SCOPE);
 }
 
-async function adminPermissionsResponse(env, userId) {
+async function adminPermissionsResponse(env, userId, definitions = null) {
+  const availableScopes = definitions || await assignableScopes(env);
   const result = await env.PERMISSIONS_DB.prepare(`
     SELECT scope, source, status, starts_at, expires_at, granted_by, note, created_at, updated_at
     FROM user_scope_grants
@@ -734,7 +856,7 @@ async function adminPermissionsResponse(env, userId) {
   return json({
     ok:true,
     user_id:userId,
-    scopes:ASSIGNABLE_SCOPES.map(definition => {
+    scopes:availableScopes.map(definition => {
       const row = byScope.get(definition.scope) || null;
       const active = Boolean(row && row.status === 'active' && Number(row.starts_at) <= now && (row.expires_at === null || Number(row.expires_at) > now));
       return {
@@ -754,7 +876,8 @@ async function updateAdminPermissions(env, session, userId, request) {
   let body;
   try { body = await readJson(request); } catch (error) { return json({ ok:false, error:errorMessage(error) }, 400); }
   const selected = new Set(Array.isArray(body?.scopes) ? body.scopes.map(value => String(value)) : []);
-  const allowed = new Set(ASSIGNABLE_SCOPES.map(entry => entry.scope));
+  const availableScopes = await assignableScopes(env);
+  const allowed = new Set(availableScopes.map(entry => entry.scope));
   if ([...selected].some(scope => !allowed.has(scope))) return json({ ok:false, error:'One or more requested scopes cannot be assigned.' }, 400);
   const hours = Number(body?.hours);
   if (!Number.isFinite(hours) || hours < 1 || hours > 8760) return json({ ok:false, error:'Grant duration must be between 1 and 8760 hours.' }, 400);
@@ -762,7 +885,7 @@ async function updateAdminPermissions(env, session, userId, request) {
   const expiresAt = now + Math.round(hours * 60 * 60 * 1000);
   const note = String(body?.note || 'Assigned from the SLINK administrator dashboard').trim().slice(0, 500);
   const statements = [];
-  for (const definition of ASSIGNABLE_SCOPES) {
+  for (const definition of availableScopes) {
     if (selected.has(definition.scope)) {
       statements.push(env.PERMISSIONS_DB.prepare(`
         INSERT INTO user_scope_grants(
@@ -783,7 +906,7 @@ async function updateAdminPermissions(env, session, userId, request) {
     }
   }
   await env.PERMISSIONS_DB.batch(statements);
-  return adminPermissionsResponse(env, userId);
+  return adminPermissionsResponse(env, userId, availableScopes);
 }
 
 async function handleRequest(request, env) {
@@ -794,10 +917,18 @@ async function handleRequest(request, env) {
     try {
       if (env.PERMISSIONS_DB) { await env.PERMISSIONS_DB.prepare('SELECT 1 AS ok').first(); database = 'connected'; }
     } catch { database = 'error'; }
-    return json({ ok:true, version:WORKER_VERSION, database, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured' });
+    return json({ ok:true, version:WORKER_VERSION, database, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured', theme_catalog:env.THEME_CATALOG ? 'github+kv' : 'github' });
   }
   if (request.method === 'GET' && url.pathname === '/api/terms') {
     return json({ ok:true, version:WORKER_VERSION, terms:{ version:TERMS_VERSION, sha256:TERMS_SHA256, url:TERMS_URL, summary:WAR_TERMS_SUMMARY } });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/themes') {
+    try {
+      const result = await fetchThemeCatalog(env, url.searchParams.get('refresh') === '1');
+      return json({ ok:true, version:WORKER_VERSION, source:result.source, catalog:result.catalog });
+    } catch (error) {
+      return json({ ok:false, error:errorMessage(error) }, 503);
+    }
   }
   if (request.method === 'POST' && url.pathname === '/api/auth') return handleAuth(request, env);
   const session = await authorized(request, env);
@@ -808,7 +939,7 @@ async function handleRequest(request, env) {
   if (url.pathname === '/api/admin/scopes') {
     if (!adminAllowed(session)) return json({ ok:false, error:'admin.* permission is required.' }, 403);
     if (request.method !== 'GET') return json({ ok:false, error:'Method not allowed.' }, 405);
-    return json({ ok:true, scopes:ASSIGNABLE_SCOPES });
+    return json({ ok:true, scopes:await assignableScopes(env) });
   }
   const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/(\d+)\/permissions$/);
   if (adminUserMatch) {

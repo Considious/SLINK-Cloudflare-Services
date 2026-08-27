@@ -103,6 +103,8 @@ test('keeps faction-wide config and med-out claims in the per-war coordinator', 
   assert.match(worker, /async updateConfig\(session, input = \{\}\)/);
   assert.match(worker, /async updateClaim\(session, input = \{\}\)/);
   assert.match(worker, /canViewLogs:officer/);
+  assert.match(worker, /insideHitCap/);
+  assert.match(worker, /requestedAssigneeId/);
 });
 
 test('publishes separately assignable theme permissions in the existing catalog', () => {
@@ -115,4 +117,15 @@ test('publishes separately assignable theme permissions in the existing catalog'
     assert.match(worker, new RegExp(scope.replaceAll('.', '\\.')));
   }
   assert.match(worker, /category:'Themes'/);
+});
+
+test('publishes only declarative visual data in the central theme catalog', () => {
+  const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
+  assert.equal(catalog.schemaVersion, 1);
+  assert.equal(catalog.themes.length, 4);
+  assert.ok(catalog.themes.every(theme => theme.id && theme.tokens && !JSON.stringify(theme).match(/<script|javascript:|url\s*\(/i)));
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  assert.match(worker, /\/api\/themes/);
+  assert.match(worker, /validateThemeCatalog/);
+  assert.match(worker, /THEME_CATALOG_KV_KEY/);
 });

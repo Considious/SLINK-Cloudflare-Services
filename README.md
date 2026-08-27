@@ -25,6 +25,9 @@ Cloudflare and are not stored in this repository.
 
 - [`permissions`](permissions/README.md) owns the ordered migrations for the
   existing `slink-permissions` D1 database.
+- [`themes/catalog.json`](themes/catalog.json) is the central, declarative
+  SLINK theme catalog served through the War Worker. Updating visual tokens or
+  adding a theme does not require repackaging extension code.
 - [`terms`](terms) contains the shared API/data terms referenced by Leveling
   and War.
 - Contribution-specific donation terms remain with
@@ -42,4 +45,3 @@ npm test
 
 Apply the D1 migrations in numeric order. Moving their source does not create,
 replace, or reset the existing `slink-permissions` database.
-
