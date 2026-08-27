@@ -19,7 +19,8 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.5.0-war-goals-remote-themes';
+const WORKER_VERSION = '0.5.1-permission-diagnostics';
+const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -842,26 +843,44 @@ function adminAllowed(session) {
   return Number(session?.user_id) === SOLE_ADMIN_USER_ID && hasScope(session, ADMIN_SCOPE);
 }
 
-async function adminPermissionsResponse(env, userId, definitions = null) {
+async function adminPermissionsResponse(env, userId, definitions = null, factionIdValue = 0) {
   const availableScopes = definitions || await assignableScopes(env);
-  const result = await env.PERMISSIONS_DB.prepare(`
+  const [directResult, factionResult] = await Promise.all([
+    env.PERMISSIONS_DB.prepare(`
     SELECT scope, source, status, starts_at, expires_at, granted_by, note, created_at, updated_at
     FROM user_scope_grants
     WHERE user_id = ?
     ORDER BY scope ASC
-  `).bind(userId).all();
-  const direct = result.results || [];
+  `).bind(userId).all(),
+    factionIdValue > 0
+      ? env.PERMISSIONS_DB.prepare(`
+          SELECT scope, status, starts_at, expires_at, granted_by, note, created_at, updated_at
+          FROM faction_scope_grants
+          WHERE faction_id = ?
+          ORDER BY scope ASC
+        `).bind(factionIdValue).all()
+      : Promise.resolve({ results:[] })
+  ]);
+  const direct = directResult.results || [];
+  const inherited = factionResult.results || [];
   const byScope = new Map(direct.map(row => [String(row.scope), row]));
+  const inheritedByScope = new Map(inherited.map(row => [String(row.scope), row]));
   const now = Date.now();
   return json({
     ok:true,
     user_id:userId,
+    faction_id:factionIdValue || 0,
     scopes:availableScopes.map(definition => {
       const row = byScope.get(definition.scope) || null;
-      const active = Boolean(row && row.status === 'active' && Number(row.starts_at) <= now && (row.expires_at === null || Number(row.expires_at) > now));
+      const factionRow = inheritedByScope.get(definition.scope) || null;
+      const directActive = Boolean(row && row.status === 'active' && Number(row.starts_at) <= now && (row.expires_at === null || Number(row.expires_at) > now));
+      const inheritedActive = Boolean(factionRow && factionRow.status === 'active' && Number(factionRow.starts_at) <= now && (factionRow.expires_at === null || Number(factionRow.expires_at) > now));
       return {
         ...definition,
-        active,
+        active:directActive || inheritedActive,
+        direct_active:directActive,
+        inherited_active:inheritedActive,
+        inherited_from_faction:inheritedActive ? factionIdValue : null,
         source:row?.source || null,
         starts_at:row ? Number(row.starts_at) : null,
         expires_at:row?.expires_at === null || row?.expires_at === undefined ? null : Number(row.expires_at),
@@ -914,10 +933,22 @@ async function handleRequest(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status:204, headers:corsHeaders() });
   if (request.method === 'GET' && url.pathname === '/api/health') {
     let database = 'not configured';
+    let automaticAccess = 'not configured';
     try {
-      if (env.PERMISSIONS_DB) { await env.PERMISSIONS_DB.prepare('SELECT 1 AS ok').first(); database = 'connected'; }
+      if (env.PERMISSIONS_DB) {
+        const permissions = await loadPermissions(
+          env,
+          Number.MAX_SAFE_INTEGER,
+          SLINKY_FACTION_ID,
+          Date.now()
+        );
+        database = 'connected';
+        automaticAccess = permissions.scopes.some(scope => scopeMatches(scope, WAR_SCOPE))
+          ? 'configured'
+          : 'missing';
+      }
     } catch { database = 'error'; }
-    return json({ ok:true, version:WORKER_VERSION, database, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured', theme_catalog:env.THEME_CATALOG ? 'github+kv' : 'github' });
+    return json({ ok:true, version:WORKER_VERSION, database, automatic_access:{ faction_id:SLINKY_FACTION_ID, slink_war:automaticAccess }, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured', theme_catalog:env.THEME_CATALOG ? 'github+kv' : 'github' });
   }
   if (request.method === 'GET' && url.pathname === '/api/terms') {
     return json({ ok:true, version:WORKER_VERSION, terms:{ version:TERMS_VERSION, sha256:TERMS_SHA256, url:TERMS_URL, summary:WAR_TERMS_SUMMARY } });
@@ -946,7 +977,13 @@ async function handleRequest(request, env) {
     if (!adminAllowed(session)) return json({ ok:false, error:'admin.* permission is required.' }, 403);
     const userId = positiveInteger(adminUserMatch[1]);
     if (!userId) return json({ ok:false, error:'A valid Torn user ID is required.' }, 400);
-    if (request.method === 'GET') return adminPermissionsResponse(env, userId);
+    if (request.method === 'GET') {
+      const requestedFactionId = Number(url.searchParams.get('faction_id') || 0);
+      const factionIdValue = Number.isInteger(requestedFactionId) && requestedFactionId > 0
+        ? requestedFactionId
+        : 0;
+      return adminPermissionsResponse(env, userId, null, factionIdValue);
+    }
     if (request.method === 'POST') return updateAdminPermissions(env, session, userId, request);
     return json({ ok:false, error:'Method not allowed.' }, 405);
   }
@@ -996,3 +1033,4 @@ export default {
 };
 
 export const __test = { createToken, verifyToken, validateTornKey };
+

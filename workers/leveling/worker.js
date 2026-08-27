@@ -1,14 +1,14 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.3-consent-url-relocation
+ * Release: 0.15.4-permission-diagnostics
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.3-consent-url-relocation';
+const WORKER_VERSION = '0.15.4-permission-diagnostics';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -71,6 +71,7 @@ const LEVELING_SCOPE = 'slink.level';
 const CONTRIBUTOR_SCOPE = 'slink.contribute';
 const ADMIN_SCOPE = 'admin.*';
 const SOLE_ADMIN_USER_ID = 3853023;
+const SLINKY_FACTION_ID = 46978;
 const SESSION_LIFETIME_SECONDS = 12 * 60 * 60;
 const USER_DEMAND_LIFETIME_MS = 20 * 60 * 1000;
 const NO_DEMAND_POLL_SECONDS = 20 * 60;
@@ -414,9 +415,34 @@ async function handleHealth(env) {
         }
 
         try {
-            await env.CONSENT_DB
-                .prepare('SELECT id FROM terms_acceptances LIMIT 1')
-                .first();
+            const consentColumns = await env.CONSENT_DB
+                .prepare('PRAGMA table_info(terms_acceptances)')
+                .all();
+            const availableColumns = new Set(
+                (consentColumns.results || []).map(row => String(row.name))
+            );
+            const requiredColumns = [
+                'user_id',
+                'faction_id',
+                'terms_version',
+                'document_sha256',
+                'document_url',
+                'service_id',
+                'disclosure_version',
+                'disclosure_sha256',
+                'accepted_at',
+                'client_name',
+                'client_version',
+                'acceptance_method'
+            ];
+            const missingColumns = requiredColumns.filter(
+                column => !availableColumns.has(column)
+            );
+            if (missingColumns.length) {
+                throw new Error(
+                    `terms_acceptances is missing: ${missingColumns.join(', ')}`
+                );
+            }
         } catch (error) {
             return jsonResponse(
                 {
@@ -454,15 +480,22 @@ async function handleHealth(env) {
 
         let directGrantCount;
         let factionGrantCount;
+        let automaticPermissions;
 
         try {
-            [directGrantCount, factionGrantCount] = await Promise.all([
+            [directGrantCount, factionGrantCount, automaticPermissions] = await Promise.all([
                 env.PERMISSIONS_DB
                     .prepare('SELECT COUNT(*) AS count FROM user_scope_grants')
                     .first(),
                 env.PERMISSIONS_DB
                     .prepare('SELECT COUNT(*) AS count FROM faction_scope_grants')
-                    .first()
+                    .first(),
+                loadUserPermissions(
+                    env,
+                    Number.MAX_SAFE_INTEGER,
+                    SLINKY_FACTION_ID,
+                    Date.now()
+                )
             ]);
         } catch (error) {
             return jsonResponse(
@@ -488,6 +521,13 @@ async function handleHealth(env) {
             database: 'connected',
             consent_database: 'connected',
             permissions_database: 'connected',
+            automatic_access: {
+                faction_id: SLINKY_FACTION_ID,
+                slink_level: hasSessionScope(
+                    automaticPermissions,
+                    LEVELING_SCOPE
+                ) ? 'configured' : 'missing'
+            },
             ffscouter_collector: env.FFSCOUTER_API_KEY
                 ? 'configured'
                 : 'not_configured',
@@ -3636,3 +3676,4 @@ export const testing = {
     rapidPenalty,
     verifySessionToken
 };
+

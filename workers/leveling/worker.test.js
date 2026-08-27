@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.3-consent-url-relocation';
+const WORKER_VERSION = '0.15.4-permission-diagnostics';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -62,6 +62,10 @@ describe('SLINK Leveling Worker', () => {
             database: 'connected',
             consent_database: 'connected',
             permissions_database: 'connected',
+            automatic_access: {
+                faction_id: 46978,
+                slink_level: 'configured'
+            },
             ffscouter_collector: 'not_configured',
             ffscouter_filters: {
                 minimum_level: 30,
@@ -1961,3 +1965,4 @@ const BASE_SCHEMA = `
         FOREIGN KEY (target_id) REFERENCES targets(id)
     );
 `;
+
