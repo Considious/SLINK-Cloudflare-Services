@@ -1,14 +1,14 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.5-auth-stage-diagnostics
+ * Release: 0.15.6-bounded-health-checks
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.5-auth-stage-diagnostics';
+const WORKER_VERSION = '0.15.6-bounded-health-checks';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -372,30 +372,12 @@ export default worker;
 
 async function handleHealth(env) {
     try {
-        const targetCount = await env.DB
-            .prepare('SELECT COUNT(*) AS count FROM targets')
-            .first();
-
-        const statusCount = await env.DB
-            .prepare('SELECT COUNT(*) AS count FROM target_status')
-            .first();
-
-        const hospitalCount = await env.DB
-            .prepare('SELECT COUNT(*) AS count FROM hospital_events')
-            .first();
-
-        const queueCount = await env.DB
-            .prepare('SELECT COUNT(*) AS count FROM scheduler_queue')
-            .first();
-
-        const ffscouterTargetCount = await env.DB
-            .prepare(`
-                SELECT COUNT(*) AS count
-                FROM targets
-                WHERE INSTR(COALESCE(sources, ''), ?1) > 0
-            `)
-            .bind(FFSCOUTER_SOURCE_LABEL)
-            .first();
+        await Promise.all([
+            env.DB.prepare('SELECT 1 AS ok FROM targets LIMIT 1').first(),
+            env.DB.prepare('SELECT 1 AS ok FROM target_status LIMIT 1').first(),
+            env.DB.prepare('SELECT 1 AS ok FROM hospital_events LIMIT 1').first(),
+            env.DB.prepare('SELECT 1 AS ok FROM scheduler_queue LIMIT 1').first()
+        ]);
 
         if (!env.CONSENT_DB) {
             return jsonResponse(
@@ -478,17 +460,15 @@ async function handleHealth(env) {
             );
         }
 
-        let directGrantCount;
-        let factionGrantCount;
         let automaticPermissions;
 
         try {
-            [directGrantCount, factionGrantCount, automaticPermissions] = await Promise.all([
+            [, , automaticPermissions] = await Promise.all([
                 env.PERMISSIONS_DB
-                    .prepare('SELECT COUNT(*) AS count FROM user_scope_grants')
+                    .prepare('SELECT 1 AS ok FROM user_scope_grants LIMIT 1')
                     .first(),
                 env.PERMISSIONS_DB
-                    .prepare('SELECT COUNT(*) AS count FROM faction_scope_grants')
+                    .prepare('SELECT 1 AS ok FROM faction_scope_grants LIMIT 1')
                     .first(),
                 loadUserPermissions(
                     env,
@@ -537,14 +517,14 @@ async function handleHealth(env) {
                 effective_at: TERMS_EFFECTIVE_AT
             },
             tables: {
-                targets: targetCount?.count ?? 0,
-                target_status: statusCount?.count ?? 0,
-                hospital_events: hospitalCount?.count ?? 0,
-                scheduler_queue: queueCount?.count ?? 0,
-                user_scope_grants: directGrantCount?.count ?? 0,
-                faction_scope_grants: factionGrantCount?.count ?? 0,
-                ffscouter_targets: ffscouterTargetCount?.count ?? 0
-            }
+                targets: 'reachable',
+                target_status: 'reachable',
+                hospital_events: 'reachable',
+                scheduler_queue: 'reachable',
+                user_scope_grants: 'reachable',
+                faction_scope_grants: 'reachable'
+            },
+            row_counts: 'omitted_to_keep_health_checks_constant_cost'
         });
     } catch (error) {
         return jsonResponse(

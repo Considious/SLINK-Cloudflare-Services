@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.5-auth-stage-diagnostics';
+const WORKER_VERSION = '0.15.6-bounded-health-checks';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -26,10 +26,12 @@ afterEach(() => {
 describe('SLINK Leveling Worker', () => {
     it('preserves root, health, admin, and CORS behavior', async () => {
         const db = createDatabase();
+        const consentDb = createConsentDatabase();
+        const permissionsDb = createPermissionsDatabase();
         const env = {
             DB: db,
-            CONSENT_DB: createConsentDatabase(),
-            PERMISSIONS_DB: createPermissionsDatabase(),
+            CONSENT_DB: consentDb,
+            PERMISSIONS_DB: permissionsDb,
             ADMIN_TOKEN: 'correct-admin-token'
         };
 
@@ -78,15 +80,22 @@ describe('SLINK Leveling Worker', () => {
                 effective_at: TERMS_VERSION
             },
             tables: {
-                targets: 6,
-                target_status: 0,
-                hospital_events: 0,
-                scheduler_queue: 0,
-                user_scope_grants: 1,
-                faction_scope_grants: 1,
-                ffscouter_targets: 0
-            }
+                targets: 'reachable',
+                target_status: 'reachable',
+                hospital_events: 'reachable',
+                scheduler_queue: 'reachable',
+                user_scope_grants: 'reachable',
+                faction_scope_grants: 'reachable'
+            },
+            row_counts: 'omitted_to_keep_health_checks_constant_cost'
         });
+        for (const database of [db, consentDb, permissionsDb]) {
+            assert.equal(
+                database.preparedSql.some(sql => /COUNT\s*\(\s*\*\s*\)/i.test(sql)),
+                false,
+                'health checks must not execute unbounded table counts'
+            );
+        }
 
         const deniedAdmin = await worker.fetch(
             new Request('https://worker.example/api/admin/targets'),
@@ -1796,9 +1805,11 @@ class D1DatabaseAdapter {
         this.sqlite = sqlite;
         this.writeChanges = 0;
         this.queryCount = 0;
+        this.preparedSql = [];
     }
 
     prepare(sql) {
+        this.preparedSql.push(sql);
         return new D1StatementAdapter(this, sql, []);
     }
 
