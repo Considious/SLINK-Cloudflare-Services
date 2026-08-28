@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   aggregateKey,
+  attackFlags,
   chooseCollectors,
   classifyAttack,
   filterMembers,
@@ -45,10 +46,17 @@ test('classifies incoming retals and outgoing review events', () => {
   const context = { ownFactionId:46978, opponentFactionId:99 };
   const incoming = classifyAttack({
     id:1, ended:1000, result:'Hospitalized',
-    attacker:{ id:10, faction:{ id:99 } }, defender:{ id:20, faction:{ id:46978 } }
+    modifiers:{ war:2, retaliation:2 },
+    attacker:{ id:10, name:'Enemy', faction:{ id:99, name:'Enemy Faction', tag:'ENMY' } }, defender:{ id:20, name:'Member', faction:{ id:46978, name:'Slinkys' } }
   }, context);
   assert.equal(incoming.kind, 'retal');
   assert.equal(incoming.againstWarOpponent, true);
+  assert.equal(incoming.attackerFactionName, 'Enemy Faction');
+  assert.equal(incoming.attackerFactionTag, 'ENMY');
+  assert.equal(incoming.defenderName, 'Member');
+  assert.deepEqual(attackFlags({ modifiers:{ war:2, retaliation:2 } }), { isRetal:true, isWar:true });
+  assert.equal(incoming.isWar, true);
+  assert.equal(incoming.isRetal, true);
 
   const loss = classifyAttack({
     id:2, ended:1001, result:'Lost',

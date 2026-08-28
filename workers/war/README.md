@@ -2,6 +2,11 @@
 
 Coordinates the SLINK War target, retaliation, and aggregate logging lanes.
 
+Version `0.6.0-rich-retal-details` preserves faction names/tags and Torn's War
+and retaliation flags in each five-minute Durable Object retal payload, then
+joins the latest shared opponent status into snapshots. It does not add or
+change any D1 table, so there is no migration for this release.
+
 ## Cloudflare setup
 
 1. Apply `../../permissions/migrations/0004-war-service.sql`, `0005-permission-catalog.sql`, and `0006-war-officer.sql` to the existing `slink-permissions` D1 database.

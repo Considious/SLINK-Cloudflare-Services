@@ -50,6 +50,36 @@ export function isSuccessfulAttack(attack) {
   return ['attacked', 'hospitalized', 'mugged'].includes(attackResult(attack));
 }
 
+function factionName(entity) {
+  return String(entity?.faction?.name ?? entity?.faction_name ?? '').slice(0, 100);
+}
+
+function factionTag(entity) {
+  return String(entity?.faction?.tag ?? entity?.faction_tag ?? '').slice(0, 20);
+}
+
+function activeModifier(value) {
+  if (value === true) return true;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'true' || normalized === 'yes') return true;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 1;
+}
+
+export function attackFlags(attack) {
+  const modifiers = attack?.modifiers ?? {};
+  const respect = attack?.respect ?? {};
+  const code = String(attack?.code ?? attack?.type ?? attack?.attack_type ?? '').toLowerCase();
+  const retaliation = modifiers?.retaliation ?? modifiers?.retal ?? respect?.retaliation ??
+    respect?.retal ?? attack?.is_retaliation ?? attack?.isRetaliation ?? 0;
+  const war = modifiers?.war ?? modifiers?.war_bonus ?? modifiers?.warBonus ?? respect?.war ??
+    respect?.war_bonus ?? attack?.is_war ?? attack?.isWar ?? 0;
+  return {
+    isRetal:activeModifier(retaliation) || code.includes('retal'),
+    isWar:Boolean(attack?.is_ranked_war ?? attack?.isRankedWar) || activeModifier(war) || code.includes('war')
+  };
+}
+
 export function classifyAttack(attack, context, statusById = new Map()) {
   const id = attackId(attack);
   const ended = attackEnded(attack);
@@ -58,6 +88,9 @@ export function classifyAttack(attack, context, statusById = new Map()) {
   const attackerFaction = factionId(attack?.attacker);
   const defenderFaction = factionId(attack?.defender);
   if (!id || !ended || !attacker || !defender) return null;
+  const flags = attackFlags(attack);
+  const attackerStatus = attack?.attacker?.status ?? {};
+  const attackerLastAction = attack?.attacker?.last_action ?? attack?.attacker?.lastAction ?? {};
 
   const base = {
     attackId: id,
@@ -67,8 +100,19 @@ export function classifyAttack(attack, context, statusById = new Map()) {
     defenderId: defender,
     defenderName: String(attack?.defender?.name || ''),
     attackerFactionId: attackerFaction,
+    attackerFactionName:factionName(attack?.attacker),
+    attackerFactionTag:factionTag(attack?.attacker),
     defenderFactionId: defenderFaction,
-    opponentFactionId: Number(context.opponentFactionId) || 0
+    defenderFactionName:factionName(attack?.defender),
+    defenderFactionTag:factionTag(attack?.defender),
+    opponentFactionId: Number(context.opponentFactionId) || 0,
+    result:attackResult(attack),
+    isWar:flags.isWar,
+    isRetal:flags.isRetal,
+    attackerActivity:String(attackerLastAction?.status ?? attack?.attacker?.activity ?? '').slice(0, 20),
+    attackerStatus:String(attackerStatus?.state ?? attack?.attacker?.status_state ?? '').slice(0, 40),
+    attackerStatusDescription:String(attackerStatus?.description ?? attack?.attacker?.status_description ?? '').slice(0, 180),
+    attackerStatusUntil:Math.max(0, Number(attackerStatus?.until ?? attack?.attacker?.status_until) || 0)
   };
 
   if (

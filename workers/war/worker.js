@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.5.1-permission-diagnostics';
+const WORKER_VERSION = '0.6.0-rich-retal-details';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -560,7 +560,18 @@ export class WarCoordinator extends DurableObject {
     const retals = [];
     for (const row of retalRows) {
       if (mode === 'termed' && !session.factionCapable && Boolean(row.against_war_opponent)) continue;
-      try { retals.push(JSON.parse(String(row.payload_json))); } catch { /* Ignore corrupt transient rows. */ }
+      try {
+        const retal = JSON.parse(String(row.payload_json));
+        const live = status.byId.get(Number(retal.attackerId)) || null;
+        retals.push(live ? {
+          ...retal,
+          attackerActivity:live.activity || retal.attackerActivity || '',
+          attackerStatus:live.statusState || retal.attackerStatus || '',
+          attackerStatusDescription:live.statusDescription || retal.attackerStatusDescription || '',
+          attackerStatusUntil:live.statusUntil || retal.attackerStatusUntil || 0,
+          attackerLastActionRelative:live.lastActionRelative || ''
+        } : retal);
+      } catch { /* Ignore corrupt transient rows. */ }
     }
     const collectors = this.collectors();
     return {
