@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.6.0-rich-retal-details';
+const WORKER_VERSION = '0.7.0-demand-driven-armory';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -257,6 +257,23 @@ export class WarCoordinator extends DurableObject {
           expires_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_med_out_claims_expiry ON med_out_claims(expires_at);
+        CREATE TABLE IF NOT EXISTS armory_item_requests (
+          request_id TEXT PRIMARY KEY,
+          requester_id INTEGER NOT NULL,
+          requester_name TEXT NOT NULL,
+          holder_id INTEGER NOT NULL,
+          holder_name TEXT NOT NULL,
+          item_name TEXT NOT NULL,
+          bonus_name TEXT NOT NULL,
+          armory_id TEXT NOT NULL,
+          armory_url TEXT NOT NULL,
+          holder_status TEXT NOT NULL,
+          holder_last_action TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          resolved_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_armory_item_requests_active ON armory_item_requests(expires_at, resolved_at);
         CREATE TABLE IF NOT EXISTS pending_aggregates (
           aggregate_key TEXT PRIMARY KEY,
           bucket_start INTEGER NOT NULL,
@@ -308,6 +325,7 @@ export class WarCoordinator extends DurableObject {
       mode:meta.war_mode === 'termed' ? 'termed' : 'war',
       idleMinutes:Number.isFinite(storedIdle) ? Math.max(0, Math.min(60, storedIdle)) : 5,
       insideHitCap:Math.max(0, Math.min(9999, Number(meta.inside_hit_cap) || 0)),
+      insideBlockMode:['off', 'warn', 'block'].includes(meta.inside_block_mode) ? meta.inside_block_mode : 'warn',
       updatedBy:positiveInteger(meta.config_updated_by),
       updatedAt:Math.max(0, Number(meta.config_updated_at) || 0)
     };
@@ -320,12 +338,13 @@ export class WarCoordinator extends DurableObject {
     if (!mode) throw new Error('War mode must be war or termed.');
     const idleMinutes = Math.max(0, Math.min(60, Number(input?.idleMinutes) || 0));
     const insideHitCap = Math.max(0, Math.min(9999, Math.floor(Number(input?.insideHitCap) || 0)));
+    const insideBlockMode = ['off', 'warn', 'block'].includes(input?.insideBlockMode) ? input.insideBlockMode : 'warn';
     const now = Date.now();
     this.ctx.storage.sql.exec(`
       INSERT INTO metadata(key, value) VALUES
-        ('war_mode', ?), ('idle_minutes', ?), ('inside_hit_cap', ?), ('config_updated_by', ?), ('config_updated_at', ?)
+        ('war_mode', ?), ('idle_minutes', ?), ('inside_hit_cap', ?), ('inside_block_mode', ?), ('config_updated_by', ?), ('config_updated_at', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `, mode, String(idleMinutes), String(insideHitCap), String(session.userId), String(now));
+    `, mode, String(idleMinutes), String(insideHitCap), insideBlockMode, String(session.userId), String(now));
     return { ok:true, ...state, config:this.sharedConfig() };
   }
 
@@ -395,6 +414,84 @@ export class WarCoordinator extends DurableObject {
         expires_at = excluded.expires_at
     `, targetId, targetName, requestedAssigneeId, requestedAssigneeName, session.userId, session.userName, now, expiresAt);
     return { ok:true, ...state, claims:this.activeClaims(now) };
+  }
+
+  activeItemRequests(session, now = Date.now()) {
+    this.ctx.storage.sql.exec('DELETE FROM armory_item_requests WHERE expires_at <= ? OR resolved_at IS NOT NULL', now);
+    const rows = session.officer
+      ? this.ctx.storage.sql.exec(`
+          SELECT * FROM armory_item_requests
+          WHERE expires_at > ? AND resolved_at IS NULL
+          ORDER BY created_at DESC LIMIT 50
+        `, now).toArray()
+      : this.ctx.storage.sql.exec(`
+          SELECT * FROM armory_item_requests
+          WHERE holder_id = ? AND expires_at > ? AND resolved_at IS NULL
+          ORDER BY created_at DESC LIMIT 25
+        `, session.userId, now).toArray();
+    return rows.map(row => ({
+      requestId:String(row.request_id),
+      requesterId:Number(row.requester_id),
+      requesterName:String(row.requester_name),
+      holderId:Number(row.holder_id),
+      holderName:String(row.holder_name),
+      itemName:String(row.item_name),
+      bonusName:String(row.bonus_name),
+      armoryId:String(row.armory_id),
+      armoryUrl:String(row.armory_url),
+      holderStatus:String(row.holder_status),
+      holderLastAction:String(row.holder_last_action),
+      createdAt:Number(row.created_at),
+      expiresAt:Number(row.expires_at)
+    }));
+  }
+
+  async updateItemRequest(session, input = {}) {
+    const state = this.initialize(input?.warId, session.factionId, input?.opponentFactionId);
+    const operation = input?.operation === 'resolve' ? 'resolve' : 'request';
+    if (operation === 'resolve') {
+      const requestId = String(input?.requestId || '').trim().slice(0, 220);
+      if (!requestId) throw new Error('An armory request ID is required.');
+      const existing = this.ctx.storage.sql.exec('SELECT holder_id FROM armory_item_requests WHERE request_id = ?', requestId).toArray()[0];
+      if (existing && Number(existing.holder_id) !== session.userId && !session.officer) throw new Error('Only the item holder or a War officer may dismiss this request.');
+      this.ctx.storage.sql.exec('UPDATE armory_item_requests SET resolved_at = ? WHERE request_id = ?', Date.now(), requestId);
+      return { ok:true, ...state, itemRequests:this.activeItemRequests(session) };
+    }
+    const holderId = positiveInteger(input?.holderId ?? input?.holder_id);
+    if (!holderId) throw new Error('A valid item holder is required.');
+    const armoryId = String(input?.armoryId || '').trim().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+    if (!armoryId) throw new Error('A valid faction armory item ID is required.');
+    const bonusName = String(input?.bonusName || '').trim().slice(0, 40);
+    if (!/^(warlord|revitalize)$/i.test(bonusName)) throw new Error('Only Warlord and Revitalize items can be requested.');
+    let armoryUrl = 'https://www.torn.com/factions.php?step=your#/tab=armoury';
+    try {
+      const parsed = new URL(String(input?.armoryUrl || ''));
+      if (parsed.protocol === 'https:' && parsed.hostname === 'www.torn.com' && parsed.pathname === '/factions.php') armoryUrl = parsed.href.slice(0, 500);
+    } catch { /* Use the safe faction armory URL. */ }
+    const now = Date.now();
+    const requestId = `${session.userId}:${holderId}:${armoryId}`;
+    this.ctx.storage.sql.exec(`
+      INSERT INTO armory_item_requests(
+        request_id, requester_id, requester_name, holder_id, holder_name,
+        item_name, bonus_name, armory_id, armory_url, holder_status,
+        holder_last_action, created_at, expires_at, resolved_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(request_id) DO UPDATE SET
+        holder_name = excluded.holder_name,
+        item_name = excluded.item_name,
+        bonus_name = excluded.bonus_name,
+        armory_url = excluded.armory_url,
+        holder_status = excluded.holder_status,
+        holder_last_action = excluded.holder_last_action,
+        created_at = excluded.created_at,
+        expires_at = excluded.expires_at,
+        resolved_at = NULL
+    `, requestId, session.userId, session.userName, holderId,
+      String(input?.holderName || `Player ${holderId}`).trim().slice(0, 80),
+      String(input?.itemName || 'Ranked item').trim().slice(0, 120), bonusName,
+      armoryId, armoryUrl, String(input?.holderStatus || 'Unknown').trim().slice(0, 120),
+      String(input?.holderLastAction || 'Unknown').trim().slice(0, 120), now, now + 2 * 60 * 60 * 1000);
+    return { ok:true, ...state, requestId, itemRequests:this.activeItemRequests(session, now) };
   }
 
   collectors(now = Date.now()) {
@@ -582,8 +679,10 @@ export class WarCoordinator extends DurableObject {
       config,
       observedAt:status.observedAt,
       members:filterMembers(status.members, { mode, idleMinutes:config.idleMinutes }),
+      opponentMemberIds:status.members.map(member => Number(member.id)).filter(Boolean),
       retals,
       claims:this.activeClaims(),
+      itemRequests:this.activeItemRequests(session),
       pendingLogs:session.canViewLogs ? this.pendingLogs(200) : [],
       collectors:{
         status:Boolean(collectors.publicSessionId),
@@ -664,8 +763,9 @@ export class WarCoordinator extends DurableObject {
           WHERE aggregate_key = ?
         `, Number(row.event_count), Number(row.first_seen_at), Number(row.first_seen_at), Number(row.last_seen_at), key);
       }
-      await this.ctx.storage.setAlarm(Date.now() + 60_000);
       log('error', 'war aggregate flush failed', { warId:meta.war_id, error:errorMessage(error) });
+      // Throw once and let Cloudflare's alarm retry policy handle backoff. Do
+      // not also schedule a manual alarm, which creates a second retry stream.
       throw error;
     }
     if (this.pendingLogs(1).length) await this.ctx.storage.setAlarm(Date.now() + FLUSH_DELAY_MS);
@@ -998,7 +1098,7 @@ async function handleRequest(request, env) {
     if (request.method === 'POST') return updateAdminPermissions(env, session, userId, request);
     return json({ ok:false, error:'Method not allowed.' }, 405);
   }
-  const match = url.pathname.match(/^\/api\/wars\/([^/]+)\/(heartbeat|status|attacks|snapshot|logs|config|claims)$/);
+  const match = url.pathname.match(/^\/api\/wars\/([^/]+)\/(heartbeat|status|attacks|snapshot|logs|config|claims|item-requests)$/);
   if (!match) return json({ ok:false, error:'Route not found.' }, 404);
   const warId = validWarId(decodeURIComponent(match[1]));
   if (!warId) return json({ ok:false, error:'Invalid war ID.' }, 400);
@@ -1026,6 +1126,7 @@ async function handleRequest(request, env) {
   body.opponentFactionId = positiveInteger(body.opponent_faction_id ?? body.opponentFactionId);
   if (action === 'config') return json(await stub.updateConfig(view, body));
   if (action === 'claims') return json(await stub.updateClaim(view, body));
+  if (action === 'item-requests') return json(await stub.updateItemRequest(view, body));
   if (action === 'heartbeat') return json(await stub.heartbeat(view, body));
   if (action === 'status') return json(await stub.submitStatus(view, body));
   if (action === 'attacks') return json(await stub.submitAttacks(view, body));

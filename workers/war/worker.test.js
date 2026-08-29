@@ -112,7 +112,23 @@ test('keeps faction-wide config and med-out claims in the per-war coordinator', 
   assert.match(worker, /async updateClaim\(session, input = \{\}\)/);
   assert.match(worker, /canViewLogs:officer/);
   assert.match(worker, /insideHitCap/);
+  assert.match(worker, /insideBlockMode/);
   assert.match(worker, /requestedAssigneeId/);
+});
+
+test('keeps armory requests transient in the per-war coordinator', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS armory_item_requests/);
+  assert.match(worker, /async updateItemRequest\(session, input = \{\}\)/);
+  assert.match(worker, /Only Warlord and Revitalize items can be requested/);
+  assert.match(worker, /itemRequests:this\.activeItemRequests\(session\)/);
+  assert.doesNotMatch(worker, /PERMISSIONS_DB\.prepare\([^)]*armory_item_requests/s);
+});
+
+test('returns the full opponent membership IDs for inside-hit safety', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  assert.match(worker, /opponentMemberIds:status\.members\.map/);
+  assert.match(worker, /inside_block_mode/);
 });
 
 test('publishes separately assignable theme permissions in the existing catalog', () => {

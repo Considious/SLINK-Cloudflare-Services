@@ -2,10 +2,12 @@
 
 Coordinates the SLINK War target, retaliation, and aggregate logging lanes.
 
-Version `0.6.0-rich-retal-details` preserves faction names/tags and Torn's War
-and retaliation flags in each five-minute Durable Object retal payload, then
-joins the latest shared opponent status into snapshots. It does not add or
-change any D1 table, so there is no migration for this release.
+Version `0.7.0-demand-driven-armory` adds faction-wide Termed-war major-window
+inside controls and short-lived Warlord/Revitalize armory requests. Requests
+are deduplicated, routed to the item holder and War officers, and expire inside
+the existing per-war Durable Object. It also removes the second manual alarm
+retry path from failed aggregate flushes. It does not add or change a D1 table,
+so there is no migration for this release.
 
 ## Cloudflare setup
 
@@ -37,6 +39,8 @@ After deployment, open `/api/health`. A ready response reports the D1 database, 
 - Faction-wide War mode and expiring med-out claims also stay in that Durable Object.
 - The officer-controlled inside-hit cap and officer-made med-out assignments
   stay in the same per-war Durable Object; no additional D1 tables are used.
+- Major-window inside-gate mode and expiring armory item requests stay in the
+  same Durable Object. Armory requests never create D1 rows.
 - Only ten-minute loss, escape, and observed-online counters are persisted to D1.
 - Clients refresh persisted log counters no more than once per ten minutes;
   ten-second live refreshes read only the Durable Object's pending counters.
