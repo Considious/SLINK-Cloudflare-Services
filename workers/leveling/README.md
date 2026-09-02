@@ -9,15 +9,10 @@ deployment credentials or member API keys.
 Every deployable source change updates `WORKER_VERSION` near the top of
 `worker.js`. The root route, health route, and every response header expose that
 version. The current release is identified as
-`0.15.2-cloudflare-repo`. It moves the authoritative Worker source and terms
-links into the dedicated SLINK Cloudflare repository while retaining restricted contributor-only sessions
-and a 20-minute active-user demand window. Contributor and donated-key clients
-receive work only while a non-admin Leveling user is actively interacting;
-otherwise they back off for 20 minutes without creating collector writes.
-
-The previous `0.14.0-donated-virtual-collectors` release kept the read-optimized client
-scheduler and added demand-driven donated-key collection for active non-admin
-users.
+`0.15.7-indexed-scheduling`. It replaces the recurring 2,000-row scheduling
+snapshot with indexed, server-assigned target shards. Active collectors receive
+only their own due rows, and donated-key collection runs once from the existing
+five-minute Cron Trigger instead of once per user activity report.
 
 ## Cloudflare configuration
 
@@ -140,13 +135,14 @@ and released after that user has no live collector device.
 Collector ownership is keyed by signed session ID, allowing another device to
 take over after the collector lease expires.
 
-Scheduled checks are shared by active Torn user, not by device. The Worker reads
-one bounded target-state snapshot and returns the same active-collector roster
-and scheduling bucket to each elected collector. Each client then applies the
-same due-time rules, recommendation priority, and rendezvous hash, producing
-disjoint assignments without another Worker request or per-target claim rows in
-D1. PC and mobile sessions for one Torn user still consume one collector share,
-because only that user's elected session participates.
+Scheduled checks are shared by active Torn user, not by device. The Worker
+assigns 64 stable scheduling shards across the active collectors for each
+five-minute bucket, uses partial expression indexes to select only due rows from
+the current collector's shards, and returns at most that collector's advertised
+capacity. This keeps assignments disjoint without per-target claim writes while
+preventing collector count from multiplying whole-catalog D1 reads. PC and
+mobile sessions for one Torn user still consume one collector share, because
+only that user's elected session participates.
 
 Recommendation ranking is source-neutral. Baldr, Legacy, Extra, and every other
 source label are metadata only and never boost or penalize a target. The
@@ -169,7 +165,7 @@ available pool permits it.
 | `GET` | `/api/recommendations` | `slink.level` | Return targets and renew collector coordination |
 | `POST` | `/api/user/activity` | `slink.level` | Record an explicit interface interaction and maintain the 20-minute real-user demand window |
 | `POST` | `/api/collector/heartbeat` | `slink.level` | Backward-compatible manual collector renewal |
-| `POST` | `/api/checks/claim` | `slink.level` | Receive the bounded state snapshot and collector roster used for client scheduling |
+| `POST` | `/api/checks/claim` | `slink.level` | Receive due targets from the current collector's indexed scheduling shards |
 | `POST` | `/api/observations` | `slink.level` | Submit status observations |
 | `POST` | `/api/contributor/checks/claim` | `slink.contribute` | Receive scheduled contribution work only while real-user demand exists |
 | `POST` | `/api/contributor/observations` | `slink.contribute` | Submit contributor-only observations without product access |
@@ -184,11 +180,10 @@ the sole administrator's signed session or `X-Admin-Token: <admin token>`.
 
 The client derives its interval capacity from Considious Torn Core Lib's shared
 60-per-minute allowance. At the five-minute default it can accept up to 300
-checks. It computes the due set and its deterministic share from the Worker's
-snapshot, then spaces those checks across the interval. Every Torn request still
-passes through Core Lib, so other installed scripts remain part of the same rate
-limit. Observation uploads use up to 200 rows per Worker request to avoid
-unnecessary invocations.
+checks. The Worker computes its due shard share, and the client spaces those
+checks across the interval. Every Torn request still passes through Core Lib,
+so other installed scripts remain part of the same rate limit. Observation
+uploads use up to 200 rows per Worker request to avoid unnecessary invocations.
 
 Only the `admin.*` session may set its routine API contribution capacity to
 zero. All other users must contribute through the normal Core Lib-controlled
@@ -199,12 +194,13 @@ Release 0.11.0 also handles each observation upload as bounded D1 batches.
 Targets, prior statuses, and seven-day hospital history are preloaded in groups;
 status and hospital changes are then written with multi-row statements. Routine
 `Okay` and `Unknown` results no longer issue no-op recommendation-lease deletes.
-The maximum 200-observation upload is sized to use no more than 44 D1 statements,
+The maximum 200-observation upload is sized to use no more than 47 D1 statements,
 including the worst case where every row creates a hospital event and releases a
 lease.
 
-The snapshot marks targets currently assigned in a recommendation list. Clients
-sort those targets behind unassigned work when creating Torn API check plans.
+Scheduled rows mark targets currently assigned in a recommendation list.
+Clients sort those targets behind unassigned work when creating Torn API check
+plans.
 Opening an assigned target through the panel starts the userscript in that attack
 tab; visible status and hospital time are submitted as an attack-page observation
 and enter the same shared state. Assigned targets remain a fallback for API
@@ -226,6 +222,14 @@ Release 0.15.0 requires
 on the main Leveling D1 database. It creates the small activity table used to
 expire real-user demand after 20 minutes. Apply it before or alongside the
 Worker deployment; it does not alter existing target data.
+
+Release 0.15.7 requires
+[`migrations/0005-indexed-target-scheduling.sql`](migrations/0005-indexed-target-scheduling.sql)
+on the main `slinkies-leveling-data` database. It fills missing target status
+rows once, adds a trigger for future catalog inserts, and creates partial
+scheduling indexes for the 64-shard due-target queries. Apply this migration
+before deploying Worker 0.15.7. It belongs only to the Leveling database, not
+the permissions or consent databases.
 
 The separate consent database uses
 `consent-database/0001-terms-acceptances.sql`. Run that schema only against the

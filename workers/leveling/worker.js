@@ -1,14 +1,14 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.6-bounded-health-checks
+ * Release: 0.15.7-indexed-scheduling
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.6-bounded-health-checks';
+const WORKER_VERSION = '0.15.7-indexed-scheduling';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -56,14 +56,15 @@ const MAX_TARGET_STATS_FILTER = Number.MAX_SAFE_INTEGER;
 // supplies its live request capacity from Considious Torn Core Lib.
 const MAX_MEMBER_BATCH_ROWS = 200;
 const MAX_CHECK_PLAN_ROWS = 300;
-const MAX_CHECK_SNAPSHOT_ROWS = 2_000;
 const MAX_VIRTUAL_CHECK_ROWS = 10;
+const SCHEDULER_SHARD_COUNT = 64;
 const MAX_ACTIVITY_TARGETS_PER_REQUEST = 1_000;
 const MAX_JSON_BODY_BYTES = 256 * 1024;
 // D1 allows 100 bound parameters and 50 queries per Free-plan invocation.
 // These sizes keep a worst-case 200-row observation upload within both limits.
 const OBSERVATION_READ_CHUNK_SIZE = 50;
-const STATUS_WRITE_CHUNK_SIZE = 10;
+// Eleven bound values per status row must remain below D1's 100-parameter cap.
+const STATUS_WRITE_CHUNK_SIZE = 9;
 const HOSPITAL_WRITE_CHUNK_SIZE = 25;
 const LEASE_DELETE_CHUNK_SIZE = 50;
 
@@ -199,8 +200,7 @@ const worker = {
             return handleUserDemandActivity(
                 request,
                 env,
-                authorization.session,
-                ctx
+                authorization.session
             );
         }
 
@@ -355,6 +355,27 @@ const worker = {
             controller.noRetry?.();
             console.error(JSON.stringify({
                 event: 'ffscouter_leveling_discovery_failed',
+                version: WORKER_VERSION,
+                scheduled_at: controller.scheduledTime,
+                error: errorMessage(error)
+            }));
+        }
+
+        try {
+            const result = await runScheduledVirtualCollector(
+                env,
+                controller.scheduledTime
+            );
+            console.log(JSON.stringify({
+                event: 'slink_leveling_scheduled_virtual_collector',
+                version: WORKER_VERSION,
+                scheduled_at: controller.scheduledTime,
+                ...result
+            }));
+        } catch (error) {
+            controller.noRetry?.();
+            console.error(JSON.stringify({
+                event: 'slink_leveling_scheduled_virtual_collector_failed',
                 version: WORKER_VERSION,
                 scheduled_at: controller.scheduledTime,
                 error: errorMessage(error)
@@ -2020,70 +2041,44 @@ async function handleClaimChecks(request, env, session) {
             });
         }
 
-        // Return a compact state snapshot rather than constructing a complete
-        // schedule once per collector. Every client receives the same inputs
-        // and independently reaches the same owner for each due target.
-        const freshnessSlot = dailyFreshnessSlot(now);
-        const snapshotResult = await env.DB
-            .prepare(`
-                SELECT
-                    t.id,
-                    t.name,
-                    t.level,
-                    t.total_stats,
-                    t.sources,
-                    CASE WHEN ts.target_id IS NULL THEN 0 ELSE 1 END
-                        AS has_status,
-                    COALESCE(ts.status, 'Unknown') AS previous_status,
-                    CAST(COALESCE(ts.status_until, '0') AS INTEGER)
-                        AS previous_status_until,
-                    CAST(COALESCE(ts.last_checked_at, '0') AS INTEGER)
-                        AS previous_last_checked_at,
-                    CAST(COALESCE(ts.next_check_at, '0') AS INTEGER)
-                        AS next_check_at,
-                    COALESCE(ts.competition_score, 0) AS competition_score,
-                    COALESCE(ts.competition_tier, 'Prime') AS competition_tier,
-                    COALESCE(ts.hiding_out, 0) AS hiding_out,
-                    COALESCE(ts.permanent_federal, 0) AS permanent_federal,
-                    activity.last_seen_at AS activity_last_seen_at,
-                    CASE
-                        WHEN assigned_target.target_id IS NULL THEN 0
-                        ELSE 1
-                    END AS recommendation_leased
-                FROM targets AS t
-                LEFT JOIN target_status AS ts
-                    ON ts.target_id = t.id
-                LEFT JOIN target_activity AS activity
-                    ON activity.target_id = t.id
-                LEFT JOIN client_target_leases AS assigned_target
-                    ON assigned_target.target_id = t.id
-                   AND assigned_target.expires_at > ?1
-                ORDER BY t.id ASC
-                LIMIT ?2
-            `)
-            .bind(
-                now,
-                MAX_CHECK_SNAPSHOT_ROWS
-            )
-            .all();
-        const targets = snapshotResult.results || [];
+        // Each collector owns stable scheduling shards for this five-minute
+        // bucket. D1 now returns only due rows from those shards instead of
+        // sending every collector the same 2,000-row catalog snapshot.
+        const assignedShards = schedulingShardsForCollector(
+            session,
+            activeCollectorList,
+            scheduleBucket
+        );
+        const targets = await selectScheduledCheckTargets(env, {
+            now,
+            scheduleBucket,
+            limit: intervalCapacity,
+            shards: assignedShards
+        });
 
         return collectorLeaseResponse(collectorLease, {
             count: targets.length,
             capacity: intervalCapacity,
             interval_capacity: intervalCapacity,
-            due_count: 0,
+            due_count: targets.length,
             active_collectors: activeCollectors,
             fair_share: 0,
             claim_seconds: Math.floor(claimLifetimeMs / 1000),
-            coordination: 'client_rendezvous_hash',
+            coordination: 'server_sharded_v2',
+            server_assigned: true,
             schedule: 'client_deterministic_time_bucket',
             schedule_bucket: scheduleBucket,
             batch_id: batchId,
-            daily_freshness_window: freshnessSlot >= 0,
+            daily_freshness_window: dailyFreshnessSlot(now) >= 0,
             collector_user_id: session.user_id,
             collector_session_id: session.session_id,
-            collector_roster: activeCollectorList,
+            // The server already partitioned these targets. Returning only the
+            // current collector here also keeps older extension clients from
+            // applying the legacy per-target rendezvous filter a second time.
+            collector_roster: [{
+                user_id: session.user_id,
+                session_id: session.session_id
+            }],
             targets,
             checks: []
         });
@@ -2093,7 +2088,269 @@ async function handleClaimChecks(request, env, session) {
 }
 
 
-async function handleUserDemandActivity(request, env, session, ctx) {
+function stableSchedulingHash(value) {
+    let hash = 2166136261;
+
+    for (const character of String(value)) {
+        hash ^= character.charCodeAt(0);
+        hash = Math.imul(hash, 16777619);
+    }
+
+    return hash >>> 0;
+}
+
+
+function collectorSchedulingKey(collector) {
+    return `${Number(collector?.user_id) || 0}:` +
+        String(collector?.session_id || '');
+}
+
+
+function assignedCollectorForShard(shard, collectors, scheduleBucket) {
+    let winner = '';
+    let winnerScore = -1;
+
+    for (const collector of collectors) {
+        const key = collectorSchedulingKey(collector);
+        const score = stableSchedulingHash(
+            `${scheduleBucket}:shard:${shard}:${key}`
+        );
+
+        if (score > winnerScore || (score === winnerScore && key < winner)) {
+            winner = key;
+            winnerScore = score;
+        }
+    }
+
+    return winner;
+}
+
+
+function schedulingShardsForCollector(session, collectors, scheduleBucket) {
+    const collectorKey = collectorSchedulingKey(session);
+    const shards = [];
+
+    for (let shard = 0; shard < SCHEDULER_SHARD_COUNT; shard++) {
+        if (
+            assignedCollectorForShard(shard, collectors, scheduleBucket) ===
+            collectorKey
+        ) {
+            shards.push(shard);
+        }
+    }
+
+    return shards;
+}
+
+
+function dailyFreshnessWindowStart(now = Date.now()) {
+    const date = new Date(now);
+    return Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+        23,
+        45
+    );
+}
+
+
+async function selectScheduledCheckTargets(
+    env,
+    { now, scheduleBucket, limit, shards }
+) {
+    const boundedLimit = boundedInteger(limit, 0, 0, MAX_CHECK_PLAN_ROWS);
+    const assignedShards = [...new Set((shards || [])
+        .map(Number)
+        .filter(shard => {
+            return Number.isInteger(shard) &&
+                shard >= 0 &&
+                shard < SCHEDULER_SHARD_COUNT;
+        }))];
+
+    if (!boundedLimit || !assignedShards.length) return [];
+
+    const shardParameters = orderedSqlParameters(assignedShards.length);
+    const nowParameter = assignedShards.length + 1;
+    const activityCutoffParameter = nowParameter + 1;
+    const primeSlotParameter = activityCutoffParameter + 1;
+    const warmSlotParameter = primeSlotParameter + 1;
+    const crowdedSlotParameter = warmSlotParameter + 1;
+    const farmedSlotParameter = crowdedSlotParameter + 1;
+    const routineStartParameter = farmedSlotParameter + 1;
+    const freshnessSlotParameter = routineStartParameter + 1;
+    const freshnessStartParameter = freshnessSlotParameter + 1;
+    const limitParameter = freshnessStartParameter + 1;
+    const statusColumns = `
+        status.target_id,
+        status.status,
+        status.status_until,
+        status.last_checked_at,
+        status.next_check_at,
+        status.last_checked_at_ms,
+        status.next_check_at_ms,
+        status.competition_score,
+        status.competition_tier,
+        status.hiding_out,
+        status.permanent_federal
+    `;
+    const commonPredicate = `
+        (status.target_id % ${SCHEDULER_SHARD_COUNT})
+            IN (${shardParameters})
+        AND status.hiding_out = 0
+        AND status.permanent_federal = 0
+    `;
+
+    const result = await env.DB
+        .prepare(`
+            WITH due_status AS (
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND status.status <> 'Okay'
+                  AND status.next_check_at_ms <= ?${nowParameter}
+
+                UNION ALL
+
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND status.status = 'Okay'
+                  AND status.competition_tier = 'Prime'
+                  AND (status.target_id % 3) = ?${primeSlotParameter}
+                  AND status.last_checked_at_ms < ?${routineStartParameter}
+
+                UNION ALL
+
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND status.status = 'Okay'
+                  AND status.competition_tier = 'Warm'
+                  AND (status.target_id % 6) = ?${warmSlotParameter}
+                  AND status.last_checked_at_ms < ?${routineStartParameter}
+
+                UNION ALL
+
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND status.status = 'Okay'
+                  AND status.competition_tier = 'Crowded'
+                  AND (status.target_id % 12) = ?${crowdedSlotParameter}
+                  AND status.last_checked_at_ms < ?${routineStartParameter}
+
+                UNION ALL
+
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND status.status = 'Okay'
+                  AND status.competition_tier = 'Farmed'
+                  AND (status.target_id % 72) = ?${farmedSlotParameter}
+                  AND status.last_checked_at_ms < ?${routineStartParameter}
+
+                UNION ALL
+
+                SELECT ${statusColumns}
+                FROM target_status AS status
+                WHERE ${commonPredicate}
+                  AND ?${freshnessSlotParameter} >= 0
+                  AND status.status = 'Okay'
+                  AND (status.target_id % 3) = ?${freshnessSlotParameter}
+                  AND status.last_checked_at_ms < ?${freshnessStartParameter}
+                  AND NOT (
+                        (
+                            status.competition_tier = 'Prime'
+                            AND (status.target_id % 3)
+                                = ?${primeSlotParameter}
+                        )
+                        OR (
+                            status.competition_tier = 'Warm'
+                            AND (status.target_id % 6)
+                                = ?${warmSlotParameter}
+                        )
+                        OR (
+                            status.competition_tier = 'Crowded'
+                            AND (status.target_id % 12)
+                                = ?${crowdedSlotParameter}
+                        )
+                        OR (
+                            status.competition_tier = 'Farmed'
+                            AND (status.target_id % 72)
+                                = ?${farmedSlotParameter}
+                        )
+                  )
+            )
+            SELECT
+                target.id,
+                target.name,
+                target.level,
+                target.total_stats,
+                target.sources,
+                1 AS has_status,
+                due_status.status AS previous_status,
+                CAST(due_status.status_until AS INTEGER)
+                    AS previous_status_until,
+                due_status.last_checked_at_ms AS previous_last_checked_at,
+                due_status.next_check_at_ms AS next_check_at,
+                due_status.competition_score,
+                due_status.competition_tier,
+                due_status.hiding_out,
+                due_status.permanent_federal,
+                activity.last_seen_at AS activity_last_seen_at,
+                CASE
+                    WHEN assigned_target.target_id IS NULL THEN 0
+                    ELSE 1
+                END AS recommendation_leased
+            FROM due_status
+            JOIN targets AS target
+                ON target.id = due_status.target_id
+            LEFT JOIN target_activity AS activity
+                ON activity.target_id = due_status.target_id
+            LEFT JOIN client_target_leases AS assigned_target
+                ON assigned_target.target_id = due_status.target_id
+               AND assigned_target.expires_at > ?${nowParameter}
+            WHERE activity.target_id IS NULL
+               OR activity.last_seen_at < ?${activityCutoffParameter}
+            ORDER BY
+                CASE
+                    WHEN assigned_target.target_id IS NULL THEN 0
+                    ELSE 1
+                END ASC,
+                CASE
+                    WHEN due_status.status IN ('Hospital', 'Federal') THEN 0
+                    WHEN due_status.status = 'Okay' THEN 3
+                    ELSE 2
+                END ASC,
+                due_status.competition_score ASC,
+                due_status.last_checked_at_ms ASC,
+                target.level DESC,
+                CASE WHEN target.total_stats IS NULL THEN 1 ELSE 0 END ASC,
+                target.total_stats ASC,
+                target.id ASC
+            LIMIT ?${limitParameter}
+        `)
+        .bind(
+            ...assignedShards,
+            now,
+            Math.floor((now - ACTIVITY_WINDOW_MS) / 1000),
+            scheduleBucket % 3,
+            scheduleBucket % 6,
+            scheduleBucket % 12,
+            scheduleBucket % 72,
+            scheduleBucket * ROUTINE_CHECK_BUCKET_MS,
+            dailyFreshnessSlot(now),
+            dailyFreshnessWindowStart(now),
+            boundedLimit
+        )
+        .all();
+
+    return result.results || [];
+}
+
+
+async function handleUserDemandActivity(request, env, session) {
     const now = Date.now();
 
     // Admin testing must never keep paid-user demand alive by itself.
@@ -2152,8 +2409,6 @@ async function handleUserDemandActivity(request, env, session, ctx) {
         `)
         .bind(session.session_id, session.user_id, lastInteractionAt, activeUntil)
         .run();
-
-    scheduleVirtualCollector(ctx, env, session);
 
     return jsonResponse({
         ok: true,
@@ -2580,9 +2835,11 @@ async function persistTargetObservations(env, plans) {
             row.competitionScore,
             row.competitionTier,
             row.hidingOut,
-            row.permanentFederal
+            row.permanentFederal,
+            row.lastCheckedAt,
+            row.nextCheckAt
         ]);
-        const rows = orderedValueRows(chunk.length, 9, true);
+        const rows = orderedValueRows(chunk.length, 11, true);
         statements.push(
             env.DB
                 .prepare(`
@@ -2596,6 +2853,8 @@ async function persistTargetObservations(env, plans) {
                         competition_tier,
                         hiding_out,
                         permanent_federal,
+                        last_checked_at_ms,
+                        next_check_at_ms,
                         updated_at
                     )
                     VALUES ${rows}
@@ -2608,6 +2867,8 @@ async function persistTargetObservations(env, plans) {
                         competition_tier = excluded.competition_tier,
                         hiding_out = excluded.hiding_out,
                         permanent_federal = excluded.permanent_federal,
+                        last_checked_at_ms = excluded.last_checked_at_ms,
+                        next_check_at_ms = excluded.next_check_at_ms,
                         updated_at = CURRENT_TIMESTAMP
                 `)
                 .bind(...bindings)
@@ -2742,6 +3003,10 @@ async function handleActivityReport(request, env, session) {
                                 next_check_at = CASE
                                     WHEN hiding_out = 1 THEN '0'
                                     ELSE next_check_at
+                                END,
+                                next_check_at_ms = CASE
+                                    WHEN hiding_out = 1 THEN 0
+                                    ELSE next_check_at_ms
                                 END,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE target_id = ?1
@@ -3469,25 +3734,6 @@ function memberAuthenticationRequired() {
 }
 
 
-function scheduleVirtualCollector(ctx, env, session) {
-    if (
-        Number(session?.user_id) === SOLE_ADMIN_USER_ID ||
-        !env.CONTRIBUTION_SERVICE ||
-        !env.CONTRIBUTION_SERVICE_TOKEN
-    ) return;
-
-    const work = runVirtualCollectorCycle(env, session).catch(error => {
-        console.error(JSON.stringify({
-            event: 'slink_leveling_virtual_collector_failed',
-            version: WORKER_VERSION,
-            user_id: Number(session?.user_id) || 0,
-            error: errorMessage(error)
-        }));
-    });
-    if (ctx?.waitUntil) ctx.waitUntil(work);
-}
-
-
 async function runVirtualCollectorCycle(env, session) {
     const targets = await selectVirtualCheckTargets(env, Date.now());
     const response = await env.CONTRIBUTION_SERVICE.fetch(
@@ -3547,37 +3793,48 @@ async function runVirtualCollectorCycle(env, session) {
 }
 
 
-async function selectVirtualCheckTargets(env, now) {
-    const activityCutoff = Math.floor((now - ACTIVITY_WINDOW_MS) / 1000);
-    const result = await env.DB
+async function runScheduledVirtualCollector(env, scheduledTime = Date.now()) {
+    if (!env.CONTRIBUTION_SERVICE || !env.CONTRIBUTION_SERVICE_TOKEN) {
+        return { active: false, reason: 'contribution_service_not_configured' };
+    }
+
+    const now = Number(scheduledTime) || Date.now();
+    const activeUser = await env.DB
         .prepare(`
-            SELECT t.id
-            FROM targets AS t
-            LEFT JOIN target_status AS status
-                ON status.target_id = t.id
-            LEFT JOIN target_activity AS activity
-                ON activity.target_id = t.id
-            WHERE (
-                    activity.last_seen_at IS NULL
-                    OR activity.last_seen_at < ?1
-                  )
-              AND COALESCE(status.hiding_out, 0) = 0
-              AND COALESCE(status.permanent_federal, 0) = 0
-              AND (
-                    status.target_id IS NULL
-                    OR CAST(COALESCE(status.next_check_at, '0') AS INTEGER) <= ?2
-                  )
-            ORDER BY
-                CASE WHEN status.target_id IS NULL THEN 0 ELSE 1 END ASC,
-                COALESCE(status.competition_score, 0) ASC,
-                CAST(COALESCE(status.last_checked_at, '0') AS INTEGER) ASC,
-                t.level DESC,
-                t.id ASC
-            LIMIT ?3
+            SELECT user_id
+            FROM leveling_user_activity
+            WHERE active_until > ?1
+              AND user_id <> ?2
+            ORDER BY active_until DESC
+            LIMIT 1
         `)
-        .bind(activityCutoff, now, MAX_VIRTUAL_CHECK_ROWS)
-        .all();
-    return (result.results || []).map(row => ({ id: Number(row.id) }));
+        .bind(now, SOLE_ADMIN_USER_ID)
+        .first();
+
+    if (!activeUser?.user_id) {
+        return { active: false, reason: 'no_active_user_demand' };
+    }
+
+    return runVirtualCollectorCycle(env, {
+        user_id: Number(activeUser.user_id)
+    });
+}
+
+
+async function selectVirtualCheckTargets(env, now) {
+    const scheduleBucket = routineCheckBucket(now);
+    const targets = await selectScheduledCheckTargets(env, {
+        now,
+        scheduleBucket,
+        limit: MAX_VIRTUAL_CHECK_ROWS,
+        // A small rotating shard window keeps donated-key discovery bounded
+        // while avoiding empty cycles in a sparse target catalog.
+        shards: Array.from(
+            { length: 4 },
+            (_, offset) => (scheduleBucket + offset) % SCHEDULER_SHARD_COUNT
+        )
+    });
+    return targets.map(row => ({ id: Number(row.id) }));
 }
 
 
@@ -3670,6 +3927,9 @@ export const testing = {
     parseCsv,
     parseStatNumber,
     rapidPenalty,
+    runScheduledVirtualCollector,
+    selectScheduledCheckTargets,
+    schedulingShardsForCollector,
     verifySessionToken
 };
 

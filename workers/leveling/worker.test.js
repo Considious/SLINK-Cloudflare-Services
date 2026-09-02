@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.6-bounded-health-checks';
+const WORKER_VERSION = '0.15.7-indexed-scheduling';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -632,7 +632,7 @@ describe('SLINK Leveling Worker', () => {
     });
 
 
-    it('runs donated collection in the background for members but never for admin-only use', async () => {
+    it('runs donated collection once from the scheduled cycle, never from activity reports', async () => {
         const db = createDatabase();
         const contributionRequests = [];
         const env = {
@@ -693,13 +693,19 @@ describe('SLINK Leveling Worker', () => {
             { waitUntil: promise => memberBackground.push(promise) }
         );
         assert.equal((await memberActivity.json()).active, true);
-        assert.equal(memberBackground.length, 1);
-        await Promise.all(memberBackground);
+        assert.equal(memberBackground.length, 0);
+        assert.equal(contributionRequests.length, 0);
+
+        const scheduled = await testing.runScheduledVirtualCollector(
+            env,
+            Date.now()
+        );
+        assert.equal(scheduled.ok, true);
         assert.equal(contributionRequests.length, 1);
         assert.equal(contributionRequests[0].service_id, 'slink.level');
         assert.equal(contributionRequests[0].user_id, 9002);
         assert.equal(contributionRequests[0].is_admin, false);
-        assert.ok(contributionRequests[0].targets.length > 0);
+        assert.ok(contributionRequests[0].targets.length <= 10);
         assert.equal(
             db.sqlite
                 .prepare('SELECT status FROM target_status WHERE target_id = 1')
@@ -793,7 +799,7 @@ describe('SLINK Leveling Worker', () => {
     });
 
 
-    it('returns a shared scheduling snapshot without per-target claim writes', async () => {
+    it('returns bounded server-assigned scheduling shards without claim writes', async () => {
         const db = createDatabase();
         const env = { DB: db, SESSION_SECRET };
         const firstToken = await sessionToken(1001);
@@ -852,20 +858,21 @@ describe('SLINK Leveling Worker', () => {
         const secondIds = secondPlan.targets.map(row => row.id);
 
         assert.equal(db.writeChanges, writesBeforePlans);
-        assert.equal(firstPlan.coordination, 'client_rendezvous_hash');
+        assert.equal(firstPlan.coordination, 'server_sharded_v2');
+        assert.equal(firstPlan.server_assigned, true);
         assert.equal(firstPlan.schedule, 'client_deterministic_time_bucket');
         assert.equal(firstPlan.capacity, 2);
-        assert.equal(firstPlan.count, 6);
+        assert.ok(firstPlan.count <= 2);
+        assert.ok(secondPlan.count <= 2);
         assert.deepEqual(firstPlan.checks, []);
-        assert.deepEqual(firstIds, [1, 2, 3, 4, 5, 6]);
-        assert.deepEqual(secondIds, firstIds);
-        assert.deepEqual(secondPlan.collector_roster, firstPlan.collector_roster);
-        assert.deepEqual(
-            firstPlan.targets
-                .filter(row => Number(row.recommendation_leased) === 1)
-                .map(row => row.id),
-            assignedIds
+        assert.equal(firstPlan.collector_roster.length, 1);
+        assert.equal(secondPlan.collector_roster.length, 1);
+        assert.equal(
+            firstIds.some(id => secondIds.includes(id)),
+            false,
+            'collector shards must not overlap'
         );
+        assert.ok(assignedIds.length > 0);
         assert.equal(
             db.sqlite
                 .prepare('SELECT COUNT(*) AS count FROM client_check_claims')
@@ -879,7 +886,7 @@ describe('SLINK Leveling Worker', () => {
                 firstToken,
                 {
                     observations: [{
-                        target_id: firstIds[0],
+                        target_id: firstIds[0] || secondIds[0],
                         state: 'Okay',
                         description: 'Okay',
                         until: 0,
@@ -949,10 +956,10 @@ describe('SLINK Leveling Worker', () => {
 
         const refreshedResponse = await worker.fetch(claimRequest(), env);
         const refreshed = await refreshedResponse.json();
-        assert.equal(refreshed.count, first.count);
         assert.equal(
-            refreshed.targets.find(row => row.id === completed.id).previous_status,
-            'Okay'
+            refreshed.targets.some(row => row.id === completed.id),
+            false,
+            'a completed target must not be scheduled again in the same bucket'
         );
     });
 
@@ -975,10 +982,21 @@ describe('SLINK Leveling Worker', () => {
                 competition_tier
             )
             VALUES (?, 'Okay', 0, ?, ?, 0, 'Prime')
+            ON CONFLICT(target_id) DO UPDATE SET
+                status = excluded.status,
+                status_until = excluded.status_until,
+                last_checked_at = excluded.last_checked_at,
+                next_check_at = excluded.next_check_at,
+                competition_score = excluded.competition_score,
+                competition_tier = excluded.competition_tier
         `);
 
         for (let id = 1; id <= 6; id++) {
-            insertStatus.run(id, now, now + (365 * 24 * 60 * 60 * 1000));
+            insertStatus.run(
+                id,
+                now - (5 * 60 * 1000),
+                now + (365 * 24 * 60 * 60 * 1000)
+            );
         }
 
         await worker.fetch(
@@ -1006,12 +1024,53 @@ describe('SLINK Leveling Worker', () => {
         assert.equal(response.status, 200);
         assert.equal(body.schedule, 'client_deterministic_time_bucket');
         assert.deepEqual(body.checks, []);
-        assert.deepEqual(body.targets.map(row => row.id), [1, 2, 3, 4, 5, 6]);
-        assert.deepEqual(
-            body.targets
-                .filter(row => row.id % 3 === scheduleBucket % 3)
-                .map(row => row.id),
-            expected
+        assert.deepEqual(body.targets.map(row => row.id), expected);
+    });
+
+
+    it('uses partial scheduling indexes instead of scanning target_status', () => {
+        const db = createDatabase();
+        const nonOkayPlan = db.sqlite.prepare(`
+            EXPLAIN QUERY PLAN
+            SELECT target_id
+            FROM target_status AS status
+            WHERE (status.target_id % 64) IN (1, 2)
+              AND status.hiding_out = 0
+              AND status.permanent_federal = 0
+              AND status.status <> 'Okay'
+              AND status.next_check_at_ms <= 1800000000000
+        `).all().map(row => String(row.detail));
+        const primePlan = db.sqlite.prepare(`
+            EXPLAIN QUERY PLAN
+            SELECT target_id
+            FROM target_status AS status
+            WHERE (status.target_id % 64) IN (1, 2)
+              AND status.hiding_out = 0
+              AND status.permanent_federal = 0
+              AND status.status = 'Okay'
+              AND status.competition_tier = 'Prime'
+              AND (status.target_id % 3) = 1
+              AND status.last_checked_at_ms < 1800000000000
+        `).all().map(row => String(row.detail));
+
+        assert.ok(nonOkayPlan.some(detail => {
+            return detail.includes('idx_target_status_nonokay_schedule');
+        }));
+        assert.ok(primePlan.some(detail => {
+            return detail.includes('idx_target_status_');
+        }));
+        assert.equal(
+            [...nonOkayPlan, ...primePlan].some(detail => {
+                return detail === 'SCAN status';
+            }),
+            false
+        );
+        assert.equal(
+            db.sqlite
+                .prepare('SELECT COUNT(*) AS count FROM target_status')
+                .get().count,
+            6,
+            'the target insert trigger must initialize scheduling state'
         );
     });
 
@@ -1056,8 +1115,8 @@ describe('SLINK Leveling Worker', () => {
         assert.equal(db.writeChanges - writesBefore, 60);
         assert.equal(
             db.queryCount - queriesBefore,
-            12,
-            '60 normal observations should use six preload and six write queries'
+            13,
+            '60 normal observations should use six preload and seven write queries'
         );
         assert.equal(
             db.sqlite
@@ -1161,7 +1220,7 @@ describe('SLINK Leveling Worker', () => {
         assert.equal(response.status, 200);
         assert.equal(body.accepted_count, 200);
         assert.equal(body.rejected_count, 0);
-        assert.equal(usedQueries, 44);
+        assert.equal(usedQueries, 47);
         assert.ok(usedQueries <= 50);
         assert.equal(db.writeChanges - writesBefore, 400);
     });
@@ -1339,7 +1398,7 @@ describe('SLINK Leveling Worker', () => {
             env
         );
         const pcSnapshot = await pcChecks.json();
-        assert.equal(pcSnapshot.count, 6);
+        assert.ok(pcSnapshot.count <= 2);
         assert.equal(pcSnapshot.capacity, 2);
         assert.equal(pcSnapshot.collector_roster.length, 1);
         assert.deepEqual(pcSnapshot.checks, []);
@@ -1378,7 +1437,7 @@ describe('SLINK Leveling Worker', () => {
     });
 
 
-    it('returns one identical scheduling snapshot to all active collectors', async () => {
+    it('partitions scheduling shards across all active collectors', async () => {
         let now = 1_800_000_000_000;
         Date.now = () => now;
 
@@ -1415,22 +1474,22 @@ describe('SLINK Leveling Worker', () => {
         }
 
         for (const plan of plans) {
-            assert.equal(plan.due_count, 0);
+            assert.equal(plan.due_count, plan.count);
             assert.equal(plan.active_collectors, 3);
             assert.equal(plan.fair_share, 0);
             assert.equal(plan.capacity, 300);
             assert.equal(plan.interval_capacity, 300);
             assert.equal(plan.claim_seconds, 420);
-            assert.equal(plan.count, 6);
-            assert.equal(plan.coordination, 'client_rendezvous_hash');
-            assert.equal(plan.collector_roster.length, 3);
-            assert.deepEqual(plan.targets.map(row => row.id), [1, 2, 3, 4, 5, 6]);
+            assert.equal(plan.coordination, 'server_sharded_v2');
+            assert.equal(plan.server_assigned, true);
+            assert.equal(plan.collector_roster.length, 1);
             assert.deepEqual(plan.checks, []);
         }
-        assert.deepEqual(plans[1].targets, plans[0].targets);
-        assert.deepEqual(plans[2].targets, plans[0].targets);
-        assert.deepEqual(plans[1].collector_roster, plans[0].collector_roster);
-        assert.deepEqual(plans[2].collector_roster, plans[0].collector_roster);
+        const assignedIds = plans
+            .flatMap(plan => plan.targets.map(row => row.id))
+            .sort((left, right) => left - right);
+        assert.deepEqual(assignedIds, [1, 2, 3, 4, 5, 6]);
+        assert.equal(new Set(assignedIds).size, assignedIds.length);
 
         now += 420_001;
         const reclaimed = await worker.fetch(
@@ -1442,7 +1501,9 @@ describe('SLINK Leveling Worker', () => {
             env
         );
         assert.equal(reclaimed.status, 200);
-        assert.equal((await reclaimed.json()).count, 6);
+        const reclaimedBody = await reclaimed.json();
+        assert.ok(reclaimedBody.count > 0);
+        assert.ok(reclaimedBody.count <= 6);
     });
 
 
@@ -1739,6 +1800,12 @@ function createDatabase() {
     sqlite.exec(
         readFileSync(
             new URL('./migrations/0004-active-user-demand.sql', import.meta.url),
+            'utf8'
+        )
+    );
+    sqlite.exec(
+        readFileSync(
+            new URL('./migrations/0005-indexed-target-scheduling.sql', import.meta.url),
             'utf8'
         )
     );
