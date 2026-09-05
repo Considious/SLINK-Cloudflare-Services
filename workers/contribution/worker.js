@@ -1,14 +1,29 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.2.1-cloudflare-repo
+ * Release: 0.3.0-permission-gateway
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.2.1-cloudflare-repo';
+const WORKER_VERSION = '0.3.0-permission-gateway';
+const DATA_TERMS_VERSION = '2026-08-24';
+const DATA_TERMS_SHA256 =
+    '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
+const DATA_TERMS_URL =
+    'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
+    'terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
+const DATA_TERMS_SUMMARY =
+    'Your Torn API key is sent to SLINK only during authentication to verify ' +
+    'your identity and current faction. It is not stored by the permission ' +
+    'service. Feature grants are read from the shared SLINK permissions ' +
+    'database. Private ADHD timers, purchases, settings, and API results stay ' +
+    'in your browser.';
+const PERMISSION_SESSION_SECONDS = 2 * 60 * 60;
+const ADMIN_SCOPE = 'admin.*';
+const SOLE_ADMIN_USER_ID = 3853023;
 const TERMS_VERSION = '2026-08-23';
 const TERMS_EFFECTIVE_AT = '2026-08-23';
 const TERMS_URL =
@@ -64,6 +79,36 @@ const worker = {
 
         if (url.pathname === '/api/terms' && request.method === 'GET') {
             return handleTerms();
+        }
+
+        if (
+            url.pathname === '/api/permissions/terms' &&
+            request.method === 'GET'
+        ) {
+            return handlePermissionTerms();
+        }
+
+        if (
+            url.pathname === '/api/permissions/auth' &&
+            request.method === 'POST'
+        ) {
+            return handlePermissionAuth(request, env);
+        }
+
+        if (url.pathname === '/api/admin/scopes') {
+            return handleAdminScopes(request, env);
+        }
+
+        const permissionMatch = url.pathname.match(
+            /^\/api\/admin\/users\/(\d+)\/permissions$/
+        );
+        if (permissionMatch) {
+            return handleAdminPermissions(
+                request,
+                env,
+                positiveInteger(permissionMatch[1]),
+                url
+            );
         }
 
         if (url.pathname === '/api/donations' && request.method === 'POST') {
@@ -219,6 +264,477 @@ function handleTerms() {
         disclosure_sha256: DISCLOSURE_SHA256,
         summary: TERMS_SUMMARY
     });
+}
+
+
+function handlePermissionTerms() {
+    return jsonResponse({
+        ok: true,
+        version: WORKER_VERSION,
+        terms: {
+            version: DATA_TERMS_VERSION,
+            sha256: DATA_TERMS_SHA256,
+            url: DATA_TERMS_URL,
+            summary: DATA_TERMS_SUMMARY
+        }
+    });
+}
+
+
+function scopeMatches(grantedScope, requiredScope) {
+    const granted = String(grantedScope || '');
+    const required = String(requiredScope || '');
+    if (granted === '*' || granted === required) return true;
+    return granted.endsWith('.*') && required.startsWith(granted.slice(0, -1));
+}
+
+
+function hasScope(session, requiredScope) {
+    if (
+        (requiredScope === ADMIN_SCOPE || String(requiredScope).startsWith('admin.')) &&
+        Number(session?.user_id) !== SOLE_ADMIN_USER_ID
+    ) {
+        return false;
+    }
+    return Array.isArray(session?.scopes) &&
+        session.scopes.some(scope => scopeMatches(scope, requiredScope));
+}
+
+
+async function loadPermissions(env, userId, factionId, now) {
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT scope, expires_at
+        FROM user_scope_grants
+        WHERE user_id = ?1
+          AND status = 'active'
+          AND starts_at <= ?3
+          AND (expires_at IS NULL OR expires_at > ?3)
+        UNION ALL
+        SELECT scope, expires_at
+        FROM faction_scope_grants
+        WHERE faction_id = ?2
+          AND status = 'active'
+          AND starts_at <= ?3
+          AND (expires_at IS NULL OR expires_at > ?3)
+        ORDER BY scope ASC
+    `).bind(userId, factionId, now).all();
+    const expirations = new Map();
+    for (const row of result.results || []) {
+        const scope = String(row?.scope || '').trim();
+        if (!scope) continue;
+        if (scopeMatches(scope, ADMIN_SCOPE) && userId !== SOLE_ADMIN_USER_ID) {
+            continue;
+        }
+        const expiration = row.expires_at === null || row.expires_at === undefined
+            ? null
+            : Number(row.expires_at);
+        const previous = expirations.get(scope);
+        if (!expirations.has(scope) || previous === null || expiration === null) {
+            expirations.set(scope, previous === null || expiration === null ? null : expiration);
+        } else {
+            expirations.set(scope, Math.max(previous, expiration));
+        }
+    }
+    const scopes = [...expirations.keys()].sort();
+    const finiteExpirations = [...expirations.values()].filter(Number.isFinite);
+    const expiresAt = finiteExpirations.length
+        ? Math.min(...finiteExpirations)
+        : null;
+    return {
+        scopes,
+        roles: scopes.includes(ADMIN_SCOPE) ? ['admin'] : ['member'],
+        expiresAt: Number.isFinite(expiresAt) ? expiresAt : null
+    };
+}
+
+
+async function validateTornIdentity(apiKey) {
+    const response = await fetch('https://api.torn.com/v2/key/info', {
+        method: 'GET',
+        headers: {
+            'Authorization': `ApiKey ${apiKey}`,
+            'Accept': 'application/json',
+            'User-Agent': 'SLINK-Permission-Service'
+        }
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.error) {
+        const error = new RequestValidationError(
+            'Torn could not validate this API key.'
+        );
+        error.status = 401;
+        throw error;
+    }
+    const userId = positiveInteger(data?.info?.user?.id);
+    const userName = String(
+        data?.info?.user?.name ||
+        data?.info?.user?.username ||
+        `Player ${userId}`
+    ).slice(0, 80);
+    const factionId = Number(data?.info?.user?.faction_id || 0);
+    if (!userId || !Number.isInteger(factionId) || factionId < 0) {
+        throw new RequestValidationError('Torn returned an invalid identity.');
+    }
+    return { userId, userName, factionId };
+}
+
+
+async function recordPermissionTerms(env, identity, acceptedAt) {
+    await env.PERMISSIONS_DB.prepare(`
+        INSERT INTO war_terms_acceptances(
+            user_id, terms_version, terms_sha256, accepted_at, faction_id
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, terms_version, terms_sha256) DO UPDATE SET
+            accepted_at = excluded.accepted_at,
+            faction_id = excluded.faction_id
+    `).bind(
+        identity.userId,
+        DATA_TERMS_VERSION,
+        DATA_TERMS_SHA256,
+        acceptedAt,
+        identity.factionId
+    ).run();
+}
+
+
+async function permissionSigningKey(env, usages) {
+    if (!env.API_KEY_ENCRYPTION_KEY) {
+        throw new Error('Permission session signing is not configured.');
+    }
+    const source = textEncoder.encode(
+        `SLINK permission session v1\u0000${env.API_KEY_ENCRYPTION_KEY}`
+    );
+    const keyBytes = await crypto.subtle.digest('SHA-256', source);
+    return crypto.subtle.importKey(
+        'raw',
+        keyBytes,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        usages
+    );
+}
+
+
+async function createPermissionToken(payload, env) {
+    const body = base64UrlEncode(textEncoder.encode(JSON.stringify(payload)));
+    const signature = await crypto.subtle.sign(
+        'HMAC',
+        await permissionSigningKey(env, ['sign']),
+        textEncoder.encode(body)
+    );
+    return `${body}.${base64UrlEncode(new Uint8Array(signature))}`;
+}
+
+
+async function verifyPermissionToken(token, env) {
+    const [body, signature, extra] = String(token || '').split('.');
+    if (!body || !signature || extra) return null;
+    try {
+        const valid = await crypto.subtle.verify(
+            'HMAC',
+            await permissionSigningKey(env, ['verify']),
+            base64UrlDecode(signature),
+            textEncoder.encode(body)
+        );
+        if (!valid) return null;
+        const payload = JSON.parse(
+            new TextDecoder().decode(base64UrlDecode(body))
+        );
+        const now = Math.floor(Date.now() / 1000);
+        if (
+            !positiveInteger(payload.user_id) ||
+            !Number.isInteger(payload.faction_id) ||
+            payload.faction_id < 0 ||
+            payload.terms_version !== DATA_TERMS_VERSION ||
+            !Array.isArray(payload.scopes) ||
+            !Number.isInteger(payload.iat) ||
+            !Number.isInteger(payload.exp) ||
+            payload.iat > now ||
+            payload.exp <= now ||
+            payload.exp - payload.iat > PERMISSION_SESSION_SECONDS
+        ) {
+            return null;
+        }
+        return payload;
+    } catch {
+        return null;
+    }
+}
+
+
+async function handlePermissionAuth(request, env) {
+    try {
+        requireDatabase(env);
+        const body = await readJsonBody(request);
+        if (
+            body?.terms_accepted !== true ||
+            body?.terms_version !== DATA_TERMS_VERSION ||
+            body?.terms_sha256 !== DATA_TERMS_SHA256
+        ) {
+            return jsonResponse({
+                ok: false,
+                error: 'You must accept the current SLINK API & Data Terms.',
+                terms_required: true,
+                terms_version: DATA_TERMS_VERSION,
+                terms_sha256: DATA_TERMS_SHA256,
+                terms_url: DATA_TERMS_URL
+            }, 428);
+        }
+        const apiKey = String(body?.api_key || '').trim();
+        if (!apiKey) {
+            return jsonResponse({ ok: false, error: 'Torn API key is required.' }, 400);
+        }
+        const identity = await validateTornIdentity(apiKey);
+        const acceptedAt = Date.now();
+        const permissions = await loadPermissions(
+            env,
+            identity.userId,
+            identity.factionId,
+            acceptedAt
+        );
+        if (!permissions.scopes.length) {
+            return jsonResponse({
+                ok: false,
+                error: 'Your SLINK account does not have an active feature permission.'
+            }, 403);
+        }
+        await recordPermissionTerms(env, identity, acceptedAt);
+        const iat = Math.floor(acceptedAt / 1000);
+        const grantExp = permissions.expiresAt === null
+            ? Number.POSITIVE_INFINITY
+            : Math.floor(permissions.expiresAt / 1000);
+        const exp = Math.min(iat + PERMISSION_SESSION_SECONDS, grantExp);
+        if (!Number.isFinite(exp) || exp <= iat) {
+            return jsonResponse({ ok: false, error: 'Your SLINK grant has expired.' }, 403);
+        }
+        const payload = {
+            user_id: identity.userId,
+            user_name: identity.userName,
+            faction_id: identity.factionId,
+            session_id: crypto.randomUUID(),
+            session_kind: 'permissions',
+            terms_version: DATA_TERMS_VERSION,
+            roles: permissions.roles,
+            scopes: permissions.scopes,
+            iat,
+            exp
+        };
+        return jsonResponse({
+            ok: true,
+            authenticated: true,
+            ...payload,
+            expires_at: new Date(exp * 1000).toISOString(),
+            session_token: await createPermissionToken(payload, env)
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function permissionSession(request, env) {
+    const authorization = request.headers.get('Authorization') || '';
+    if (!authorization.startsWith('Bearer ')) return null;
+    return verifyPermissionToken(authorization.slice(7).trim(), env);
+}
+
+
+async function assignableScopes(env) {
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT scope, category, title, description, default_hours
+        FROM permission_scope_catalog
+        WHERE assignable = 1
+        ORDER BY category ASC, title ASC, scope ASC
+    `).all();
+    return (result.results || []).map(row => ({
+        scope: String(row.scope),
+        category: String(row.category || 'Products'),
+        title: String(row.title),
+        description: String(row.description),
+        default_hours: row.default_hours === null
+            ? null
+            : Number(row.default_hours)
+    }));
+}
+
+
+function adminAllowed(session) {
+    return Number(session?.user_id) === SOLE_ADMIN_USER_ID &&
+        hasScope(session, ADMIN_SCOPE);
+}
+
+
+async function handleAdminScopes(request, env) {
+    if (request.method !== 'GET') {
+        return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({ ok: false, error: 'admin.* permission is required.' }, 403);
+    }
+    return jsonResponse({ ok: true, scopes: await assignableScopes(env) });
+}
+
+
+async function adminPermissionsResponse(
+    env,
+    userId,
+    definitions = null,
+    factionId = 0
+) {
+    const availableScopes = definitions || await assignableScopes(env);
+    const [directResult, factionResult] = await Promise.all([
+        env.PERMISSIONS_DB.prepare(`
+            SELECT scope, source, status, starts_at, expires_at, granted_by,
+                   note, created_at, updated_at
+            FROM user_scope_grants
+            WHERE user_id = ?
+            ORDER BY scope ASC
+        `).bind(userId).all(),
+        factionId > 0
+            ? env.PERMISSIONS_DB.prepare(`
+                SELECT scope, status, starts_at, expires_at, granted_by, note,
+                       created_at, updated_at
+                FROM faction_scope_grants
+                WHERE faction_id = ?
+                ORDER BY scope ASC
+            `).bind(factionId).all()
+            : Promise.resolve({ results: [] })
+    ]);
+    const directByScope = new Map(
+        (directResult.results || []).map(row => [String(row.scope), row])
+    );
+    const factionByScope = new Map(
+        (factionResult.results || []).map(row => [String(row.scope), row])
+    );
+    const now = Date.now();
+    return jsonResponse({
+        ok: true,
+        user_id: userId,
+        faction_id: factionId,
+        scopes: availableScopes.map(definition => {
+            const direct = directByScope.get(definition.scope) || null;
+            const inherited = factionByScope.get(definition.scope) || null;
+            const directActive = Boolean(
+                direct && direct.status === 'active' &&
+                Number(direct.starts_at) <= now &&
+                (direct.expires_at === null || Number(direct.expires_at) > now)
+            );
+            const inheritedActive = Boolean(
+                inherited && inherited.status === 'active' &&
+                Number(inherited.starts_at) <= now &&
+                (inherited.expires_at === null || Number(inherited.expires_at) > now)
+            );
+            return {
+                ...definition,
+                active: directActive || inheritedActive,
+                direct_active: directActive,
+                inherited_active: inheritedActive,
+                inherited_from_faction: inheritedActive ? factionId : null,
+                source: direct?.source || null,
+                starts_at: direct ? Number(direct.starts_at) : null,
+                expires_at: direct?.expires_at === null || direct?.expires_at === undefined
+                    ? null
+                    : Number(direct.expires_at),
+                status: direct?.status || 'not_granted',
+                note: direct?.note || ''
+            };
+        })
+    });
+}
+
+
+async function updateAdminPermissions(env, session, userId, request) {
+    const body = await readJsonBody(request);
+    const selected = new Set(
+        Array.isArray(body?.scopes) ? body.scopes.map(String) : []
+    );
+    const availableScopes = await assignableScopes(env);
+    const allowed = new Set(availableScopes.map(entry => entry.scope));
+    if ([...selected].some(scope => !allowed.has(scope))) {
+        throw new RequestValidationError(
+            'One or more requested scopes cannot be assigned.'
+        );
+    }
+    const hours = Number(body?.hours);
+    if (!Number.isFinite(hours) || hours < 1 || hours > 8760) {
+        throw new RequestValidationError(
+            'Grant duration must be between 1 and 8760 hours.'
+        );
+    }
+    const now = Date.now();
+    const expiresAt = now + Math.round(hours * 60 * 60 * 1000);
+    const note = String(
+        body?.note || 'Assigned from the SLINK administrator dashboard'
+    ).trim().slice(0, 500);
+    const statements = [];
+    for (const definition of availableScopes) {
+        if (selected.has(definition.scope)) {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                INSERT INTO user_scope_grants(
+                    user_id, scope, source, status, starts_at, expires_at,
+                    granted_by, external_reference, note, created_at, updated_at
+                ) VALUES (?, ?, 'manual_admin', 'active', ?, ?, ?, NULL, ?, ?, ?)
+                ON CONFLICT(user_id, scope) DO UPDATE SET
+                    source = 'manual_admin',
+                    status = 'active',
+                    starts_at = excluded.starts_at,
+                    expires_at = excluded.expires_at,
+                    granted_by = excluded.granted_by,
+                    note = excluded.note,
+                    updated_at = excluded.updated_at
+            `).bind(
+                userId,
+                definition.scope,
+                now,
+                expiresAt,
+                Number(session.user_id),
+                note,
+                now,
+                now
+            ));
+        } else {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                UPDATE user_scope_grants
+                SET status = 'revoked', granted_by = ?, note = ?, updated_at = ?
+                WHERE user_id = ? AND scope = ? AND status = 'active'
+            `).bind(
+                Number(session.user_id),
+                note || 'Revoked from the SLINK administrator dashboard',
+                now,
+                userId,
+                definition.scope
+            ));
+        }
+    }
+    await env.PERMISSIONS_DB.batch(statements);
+    return adminPermissionsResponse(env, userId, availableScopes);
+}
+
+
+async function handleAdminPermissions(request, env, userId, url) {
+    if (!userId) {
+        return jsonResponse({ ok: false, error: 'A valid Torn user ID is required.' }, 400);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({ ok: false, error: 'admin.* permission is required.' }, 403);
+    }
+    try {
+        if (request.method === 'GET') {
+            const requestedFactionId = Number(url.searchParams.get('faction_id') || 0);
+            const factionId = Number.isInteger(requestedFactionId) && requestedFactionId > 0
+                ? requestedFactionId
+                : 0;
+            return adminPermissionsResponse(env, userId, null, factionId);
+        }
+        if (request.method === 'POST') {
+            return updateAdminPermissions(env, session, userId, request);
+        }
+        return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
 }
 
 

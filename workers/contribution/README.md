@@ -1,8 +1,15 @@
 # SLINK Contribution Service
 
-This Cloudflare Worker owns the cross-product pool of donated Torn **Public
-Only** API keys. It validates each key with Torn, encrypts it with AES-GCM, and
-stores only ciphertext in the existing `slink-permissions` D1 database.
+This Cloudflare Worker owns shared SLINK access services and the cross-product
+pool of donated Torn **Public Only** API keys. It is the permission gateway for
+non-product-specific extension features and the administrator grant UI. Product
+Workers still enforce their own product sessions independently.
+
+Ordinary user keys sent to `/api/permissions/auth` are used only to verify the
+Torn identity and current faction, then discarded. They are never stored.
+Donated Public Only keys follow a separate, explicit flow: the Worker validates
+each donated key, encrypts it with AES-GCM, and stores only ciphertext in the
+existing `slink-permissions` D1 database.
 
 Product Workers never receive donated keys. They may submit a narrowly
 allowlisted contribution job with the service token; this Worker decrypts a
@@ -35,6 +42,11 @@ precedence over `slink.level` without changing the key vault.
    one hour instead of polling every minute.
 6. Deploy the Worker and confirm `/api/health` reports the database connected.
 
+The existing `API_KEY_ENCRYPTION_KEY` also derives a domain-separated HMAC key
+for short-lived permission sessions. This avoids adding another secret while
+keeping the permission signature cryptographically separate from donation
+encryption operations.
+
 For SLINK Leveling, bind this Worker to the Leveling Worker as
 `CONTRIBUTION_SERVICE` and add the same `CONTRIBUTION_SERVICE_TOKEN` secret to
 the Leveling Worker. The checked-in Leveling `wrangler.jsonc` contains the
@@ -48,6 +60,10 @@ invalidate existing donations.
 ## Endpoints
 
 - `GET /api/terms` — fingerprinted current donation terms.
+- `GET /api/permissions/terms` — shared SLINK API/data terms.
+- `POST /api/permissions/auth` — verify identity and return signed feature scopes.
+- `GET /api/admin/scopes` — list grantable scopes for the sole administrator.
+- `GET|POST /api/admin/users/:id/permissions` — inspect or update timed grants.
 - `POST /api/donations` — validate and encrypt a newly accepted donation.
 - `GET /api/donations` — donor status using the donation management token.
 - `DELETE /api/donations` — revoke and erase encrypted key material.
@@ -62,8 +78,9 @@ the donated key locally and cannot retrieve plaintext from this service.
 
 ## Test
 
-The tests use Node.js only and cover encryption, Public Only validation,
-revocation, replacement, job execution, and response redaction.
+The tests use Node.js only and cover permission sessions, administrator grants,
+encryption, Public Only validation, revocation, replacement, job execution, and
+response redaction.
 
 ```text
 node --test worker.test.js

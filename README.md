@@ -28,8 +28,8 @@ Cloudflare and are not stored in this repository.
 - [`themes/catalog.json`](themes/catalog.json) is the central, declarative
   SLINK theme catalog served through the War Worker. Updating visual tokens or
   adding a theme does not require repackaging extension code.
-- [`terms`](terms) contains the shared API/data terms referenced by Leveling
-  and War.
+- [`terms`](terms) contains the shared API/data terms referenced by Leveling,
+  War, and the Contribution Worker's shared permission gateway.
 - Contribution-specific donation terms remain with
   [`workers/contribution`](workers/contribution/terms).
 

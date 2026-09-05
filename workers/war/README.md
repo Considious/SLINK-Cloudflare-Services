@@ -2,16 +2,13 @@
 
 Coordinates the SLINK War target, retaliation, and aggregate logging lanes.
 
-Version `0.7.0-demand-driven-armory` adds faction-wide Termed-war major-window
-inside controls and short-lived Warlord/Revitalize armory requests. Requests
-are deduplicated, routed to the item holder and War officers, and expire inside
-the existing per-war Durable Object. It also removes the second manual alarm
-retry path from failed aggregate flushes. It does not add or change a D1 table,
-so there is no migration for this release.
+Generic extension permission sessions and administrator grants are owned by the
+Contribution Service. This Worker issues only War sessions and serves War
+coordination routes.
 
 ## Cloudflare setup
 
-1. Apply `../../permissions/migrations/0004-war-service.sql`, `0005-permission-catalog.sql`, and `0006-war-officer.sql` to the existing `slink-permissions` D1 database.
+1. Apply the ordered permission migrations through `../../permissions/migrations/0008-adhd-dashboard.sql` to the existing `slink-permissions` D1 database.
 2. Create or connect a Worker named `slinkwarworker` to this directory.
 3. Confirm the `PERMISSIONS_DB` binding points to `slink-permissions`.
 4. Add a Worker secret named `SESSION_SECRET`. This can be a new random secret used only by the War Worker.
@@ -33,7 +30,7 @@ After deployment, open `/api/health`. A ready response reports the D1 database, 
 
 ## Data boundary
 
-- API keys are used only during `/api/auth` and are never stored by this service.
+- API keys are used only during War `/api/auth` and are never stored by this service.
 - Public status contributors submit sanitized member snapshots without API keys.
 - Live snapshots, collector leases, retals, and attack IDs stay in a per-war Durable Object.
 - Faction-wide War mode and expiring med-out claims also stay in that Durable Object.
@@ -59,12 +56,3 @@ When that binding is declared with a real namespace ID, successful GitHub
 catalog revisions are retained under `themes:catalog:current`. KV is an
 optimization and durable fallback, not a deployment prerequisite; the checked-in
 configuration intentionally does not contain a fake namespace ID.
-
-## Administration
-
-Signed `admin.*` sessions for Considious [3853023] may use
-`/api/admin/users/:tornId/permissions` to inspect and update direct timed grants
-for `slink.level`, `slink.war`, `slink.war.officer`, and theme scopes published
-by the validated catalog. The allowlist is enforced by
-the Worker and cannot create another administrator. Automatic faction grants
-are resolved separately and are not revoked by this endpoint.

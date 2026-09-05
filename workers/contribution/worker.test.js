@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.2.1-cloudflare-repo',
+            version: '0.3.0-permission-gateway',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -113,6 +113,60 @@ describe('SLINK Contribution Service', () => {
                 .prepare('SELECT COUNT(*) AS count FROM donated_api_keys')
                 .get().count,
             0
+        );
+    });
+
+
+    it('owns general permission sessions and administrator grants', async () => {
+        const env = createEnv();
+        globalThis.fetch = tornFetch({ accessType: 'Limited Access', accessLevel: 2 });
+        const authenticated = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key: 'ordinary-local-key',
+                terms_accepted: true,
+                terms_version: '2026-08-24',
+                terms_sha256: '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const session = await authenticated.json();
+        assert.equal(authenticated.status, 200);
+        assert.equal(session.user_id, 3853023);
+        assert.ok(session.scopes.includes('admin.*'));
+        assert.ok(session.scopes.includes('slink.adhd.alerts'));
+        assert.ok(session.session_token);
+        assert.ok(!JSON.stringify(session).includes('ordinary-local-key'));
+
+        const scopes = await worker.fetch(
+            new Request('https://contribution.example/api/admin/scopes', {
+                headers: { Authorization: `Bearer ${session.session_token}` }
+            }),
+            env
+        );
+        assert.equal(scopes.status, 200);
+        assert.ok((await scopes.json()).scopes.some(
+            entry => entry.scope === 'slink.adhd.marketwatch.20'
+        ));
+
+        const updated = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/admin/users/4468681/permissions',
+                {
+                    scopes: ['slink.level', 'slink.adhd.alerts'],
+                    hours: 24,
+                    note: 'Permission gateway test'
+                },
+                { Authorization: `Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(updated.status, 200);
+        assert.equal(
+            env.PERMISSIONS_DB.sqlite.prepare(`
+                SELECT status FROM user_scope_grants
+                WHERE user_id = 4468681 AND scope = 'slink.adhd.alerts'
+            `).get().status,
+            'active'
         );
     });
 
@@ -268,24 +322,21 @@ describe('SLINK Contribution Service', () => {
 
 function createEnv() {
     const sqlite = new DatabaseSync(':memory:');
-    sqlite.exec(
-        readFileSync(
-            new URL(
-                '../../permissions/migrations/0002-donated-api-keys.sql',
-                import.meta.url
-            ),
+    for (const migration of [
+        '0001-permissions.sql',
+        '0002-donated-api-keys.sql',
+        '0003-demand-driven-collectors.sql',
+        '0004-war-service.sql',
+        '0005-permission-catalog.sql',
+        '0006-war-officer.sql',
+        '0007-theme-permissions.sql',
+        '0008-adhd-dashboard.sql'
+    ]) {
+        sqlite.exec(readFileSync(
+            new URL(`../../permissions/migrations/${migration}`, import.meta.url),
             'utf8'
-        )
-    );
-    sqlite.exec(
-        readFileSync(
-            new URL(
-                '../../permissions/migrations/0003-demand-driven-collectors.sql',
-                import.meta.url
-            ),
-            'utf8'
-        )
-    );
+        ));
+    }
     return {
         PERMISSIONS_DB: new D1DatabaseAdapter(sqlite),
         API_KEY_ENCRYPTION_KEY: ENCRYPTION_KEY,
@@ -321,7 +372,11 @@ function tornFetch({ accessType, accessLevel }) {
         if (url.pathname === '/v2/key/info') {
             return Response.json({
                 info: {
-                    user: { id: 3853023 },
+            user: {
+                id: 3853023,
+                name: 'Considious',
+                faction_id: 46978
+            },
                     access: { type: accessType, level: accessLevel }
                 }
             });

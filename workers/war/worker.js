@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.7.0-demand-driven-armory';
+const WORKER_VERSION = '0.8.0-permission-sessions';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-08-24';
 const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -31,16 +31,6 @@ const CLIENT_RETENTION_MS = 2 * 60 * 1000;
 const ATTACK_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
-const BASE_ASSIGNABLE_SCOPES = Object.freeze([
-  Object.freeze({ scope:'slink.level', category:'Products', title:'SLINK Leveling', description:'Use SLINK Leveling and receive shared leveling targets.' }),
-  Object.freeze({ scope:'slink.war', category:'Products', title:'SLINK War', description:'Use shared War targets, status collection, and retaliation alerts.' }),
-  Object.freeze({ scope:OFFICER_SCOPE, category:'War permissions', title:'SLINK War Officer', description:'Control faction-wide War mode, inside-hit goals, med-out assignments, and retained War logs.' })
-]);
-const FALLBACK_THEME_SCOPES = Object.freeze([
-  Object.freeze({ scope:'slink.theme.pursuit', category:'Themes', title:'Slinky Pursuit', description:'Use the red, blue, and chrome Slinky Pursuit interface theme.' }),
-  Object.freeze({ scope:'slink.theme.underglow', category:'Themes', title:'Slinky Underglow', description:'Use the glossy black, purple, and green underglow interface theme.' }),
-  Object.freeze({ scope:'slink.theme.black-chrome', category:'Themes', title:'Slinky Black Chrome', description:'Use the black, gunmetal, and polished-silver interface theme.' })
-]);
 const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
 const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
 const THEME_REFRESH_MS = 15 * 60 * 1000;
@@ -174,22 +164,6 @@ async function fetchThemeCatalog(env, force = false) {
       .catch(error => log('warn', 'theme KV update failed', { error:errorMessage(error) }));
   }
   return { catalog, source:env.THEME_CATALOG ? 'github+kv' : 'github' };
-}
-
-async function assignableScopes(env) {
-  try {
-    const { catalog } = await fetchThemeCatalog(env);
-    const themeScopes = catalog.themes.filter(theme => theme.scope).map(theme => ({
-      scope:theme.scope,
-      category:'Themes',
-      title:theme.label,
-      description:theme.description
-    }));
-    return [...BASE_ASSIGNABLE_SCOPES, ...themeScopes];
-  } catch (error) {
-    log('warn', 'theme permission catalog fallback', { error:errorMessage(error) });
-    return [...BASE_ASSIGNABLE_SCOPES, ...FALLBACK_THEME_SCOPES];
-  }
 }
 
 function sessionView(session) {
@@ -800,7 +774,7 @@ async function loadPermissions(env, userId, factionId, now) {
   return { scopes, roles:scopes.includes(ADMIN_SCOPE) ? ['admin'] : ['member'], expiresAt:Number.isFinite(expiresAt) ? expiresAt : null };
 }
 
-async function validateTornKey(apiKey) {
+async function validateTornKey(apiKey, options = {}) {
   const headers = { Authorization:`ApiKey ${apiKey}`, Accept:'application/json', 'User-Agent':'SLINK-War-Service' };
   const keyResponse = await fetch('https://api.torn.com/v2/key/info', { headers });
   const keyData = await keyResponse.json().catch(() => null);
@@ -810,7 +784,7 @@ async function validateTornKey(apiKey) {
   const factionIdValue = Number(keyData?.info?.user?.faction_id || 0);
   if (!userId || !Number.isInteger(factionIdValue) || factionIdValue < 0) throw new Error('Torn returned an invalid identity.');
   let factionCapable = false;
-  if (factionIdValue > 0) {
+  if (options.probeFaction !== false && factionIdValue > 0) {
     try {
       const probe = await fetch('https://api.torn.com/v2/faction/attacks?limit=1&sort=desc', { headers });
       const data = await probe.json().catch(() => null);
@@ -820,6 +794,16 @@ async function validateTornKey(apiKey) {
     }
   }
   return { userId, userName, factionId:factionIdValue, factionCapable };
+}
+
+async function recordTermsAcceptance(env, identity, acceptedAt) {
+  await env.PERMISSIONS_DB.prepare(`
+    INSERT INTO war_terms_acceptances(user_id, terms_version, terms_sha256, accepted_at, faction_id)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, terms_version, terms_sha256) DO UPDATE SET
+      accepted_at = excluded.accepted_at,
+      faction_id = excluded.faction_id
+  `).bind(identity.userId, TERMS_VERSION, TERMS_SHA256, acceptedAt, identity.factionId).run();
 }
 
 async function handleAuth(request, env) {
@@ -840,13 +824,7 @@ async function handleAuth(request, env) {
     const scopes = [...permissions.scopes];
     if (identity.factionCapable && !scopes.includes(FACTION_SCOPE)) scopes.push(FACTION_SCOPE);
     scopes.sort();
-    await env.PERMISSIONS_DB.prepare(`
-      INSERT INTO war_terms_acceptances(user_id, terms_version, terms_sha256, accepted_at, faction_id)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, terms_version, terms_sha256) DO UPDATE SET
-        accepted_at = excluded.accepted_at,
-        faction_id = excluded.faction_id
-    `).bind(identity.userId, TERMS_VERSION, TERMS_SHA256, acceptedAt, identity.factionId).run();
+    await recordTermsAcceptance(env, identity, acceptedAt);
     const iat = Math.floor(acceptedAt / 1000);
     const grantExp = permissions.expiresAt === null ? Number.POSITIVE_INFINITY : Math.floor(permissions.expiresAt / 1000);
     const exp = Math.min(iat + SESSION_LIFETIME_SECONDS, grantExp);
@@ -950,95 +928,6 @@ async function logsResponse(env, stub, warId, limit, includeStored = true) {
   });
 }
 
-function adminAllowed(session) {
-  return Number(session?.user_id) === SOLE_ADMIN_USER_ID && hasScope(session, ADMIN_SCOPE);
-}
-
-async function adminPermissionsResponse(env, userId, definitions = null, factionIdValue = 0) {
-  const availableScopes = definitions || await assignableScopes(env);
-  const [directResult, factionResult] = await Promise.all([
-    env.PERMISSIONS_DB.prepare(`
-    SELECT scope, source, status, starts_at, expires_at, granted_by, note, created_at, updated_at
-    FROM user_scope_grants
-    WHERE user_id = ?
-    ORDER BY scope ASC
-  `).bind(userId).all(),
-    factionIdValue > 0
-      ? env.PERMISSIONS_DB.prepare(`
-          SELECT scope, status, starts_at, expires_at, granted_by, note, created_at, updated_at
-          FROM faction_scope_grants
-          WHERE faction_id = ?
-          ORDER BY scope ASC
-        `).bind(factionIdValue).all()
-      : Promise.resolve({ results:[] })
-  ]);
-  const direct = directResult.results || [];
-  const inherited = factionResult.results || [];
-  const byScope = new Map(direct.map(row => [String(row.scope), row]));
-  const inheritedByScope = new Map(inherited.map(row => [String(row.scope), row]));
-  const now = Date.now();
-  return json({
-    ok:true,
-    user_id:userId,
-    faction_id:factionIdValue || 0,
-    scopes:availableScopes.map(definition => {
-      const row = byScope.get(definition.scope) || null;
-      const factionRow = inheritedByScope.get(definition.scope) || null;
-      const directActive = Boolean(row && row.status === 'active' && Number(row.starts_at) <= now && (row.expires_at === null || Number(row.expires_at) > now));
-      const inheritedActive = Boolean(factionRow && factionRow.status === 'active' && Number(factionRow.starts_at) <= now && (factionRow.expires_at === null || Number(factionRow.expires_at) > now));
-      return {
-        ...definition,
-        active:directActive || inheritedActive,
-        direct_active:directActive,
-        inherited_active:inheritedActive,
-        inherited_from_faction:inheritedActive ? factionIdValue : null,
-        source:row?.source || null,
-        starts_at:row ? Number(row.starts_at) : null,
-        expires_at:row?.expires_at === null || row?.expires_at === undefined ? null : Number(row.expires_at),
-        status:row?.status || 'not_granted',
-        note:row?.note || ''
-      };
-    })
-  });
-}
-
-async function updateAdminPermissions(env, session, userId, request) {
-  let body;
-  try { body = await readJson(request); } catch (error) { return json({ ok:false, error:errorMessage(error) }, 400); }
-  const selected = new Set(Array.isArray(body?.scopes) ? body.scopes.map(value => String(value)) : []);
-  const availableScopes = await assignableScopes(env);
-  const allowed = new Set(availableScopes.map(entry => entry.scope));
-  if ([...selected].some(scope => !allowed.has(scope))) return json({ ok:false, error:'One or more requested scopes cannot be assigned.' }, 400);
-  const hours = Number(body?.hours);
-  if (!Number.isFinite(hours) || hours < 1 || hours > 8760) return json({ ok:false, error:'Grant duration must be between 1 and 8760 hours.' }, 400);
-  const now = Date.now();
-  const expiresAt = now + Math.round(hours * 60 * 60 * 1000);
-  const note = String(body?.note || 'Assigned from the SLINK administrator dashboard').trim().slice(0, 500);
-  const statements = [];
-  for (const definition of availableScopes) {
-    if (selected.has(definition.scope)) {
-      statements.push(env.PERMISSIONS_DB.prepare(`
-        INSERT INTO user_scope_grants(
-          user_id, scope, source, status, starts_at, expires_at, granted_by,
-          external_reference, note, created_at, updated_at
-        ) VALUES (?, ?, 'manual_admin', 'active', ?, ?, ?, NULL, ?, ?, ?)
-        ON CONFLICT(user_id, scope) DO UPDATE SET
-          source = 'manual_admin', status = 'active', starts_at = excluded.starts_at,
-          expires_at = excluded.expires_at, granted_by = excluded.granted_by,
-          note = excluded.note, updated_at = excluded.updated_at
-      `).bind(userId, definition.scope, now, expiresAt, Number(session.user_id), note, now, now));
-    } else {
-      statements.push(env.PERMISSIONS_DB.prepare(`
-        UPDATE user_scope_grants
-        SET status = 'revoked', granted_by = ?, note = ?, updated_at = ?
-        WHERE user_id = ? AND scope = ? AND status = 'active'
-      `).bind(Number(session.user_id), note || 'Revoked from the SLINK administrator dashboard', now, userId, definition.scope));
-    }
-  }
-  await env.PERMISSIONS_DB.batch(statements);
-  return adminPermissionsResponse(env, userId, availableScopes);
-}
-
 async function handleRequest(request, env) {
   const url = new URL(request.url);
   if (request.method === 'OPTIONS') return new Response(null, { status:204, headers:corsHeaders() });
@@ -1077,26 +966,6 @@ async function handleRequest(request, env) {
   if (!session) return json({ ok:false, error:'A valid SLINK War session is required.' }, 401);
   if (request.method === 'GET' && url.pathname === '/api/session') {
     return json({ ok:true, user_id:session.user_id, user_name:session.user_name, faction_id:session.faction_id, session_id:session.session_id, roles:session.roles, scopes:session.scopes, expires_at:new Date(session.exp * 1000).toISOString() });
-  }
-  if (url.pathname === '/api/admin/scopes') {
-    if (!adminAllowed(session)) return json({ ok:false, error:'admin.* permission is required.' }, 403);
-    if (request.method !== 'GET') return json({ ok:false, error:'Method not allowed.' }, 405);
-    return json({ ok:true, scopes:await assignableScopes(env) });
-  }
-  const adminUserMatch = url.pathname.match(/^\/api\/admin\/users\/(\d+)\/permissions$/);
-  if (adminUserMatch) {
-    if (!adminAllowed(session)) return json({ ok:false, error:'admin.* permission is required.' }, 403);
-    const userId = positiveInteger(adminUserMatch[1]);
-    if (!userId) return json({ ok:false, error:'A valid Torn user ID is required.' }, 400);
-    if (request.method === 'GET') {
-      const requestedFactionId = Number(url.searchParams.get('faction_id') || 0);
-      const factionIdValue = Number.isInteger(requestedFactionId) && requestedFactionId > 0
-        ? requestedFactionId
-        : 0;
-      return adminPermissionsResponse(env, userId, null, factionIdValue);
-    }
-    if (request.method === 'POST') return updateAdminPermissions(env, session, userId, request);
-    return json({ ok:false, error:'Method not allowed.' }, 405);
   }
   const match = url.pathname.match(/^\/api\/wars\/([^/]+)\/(heartbeat|status|attacks|snapshot|logs|config|claims|item-requests)$/);
   if (!match) return json({ ok:false, error:'Route not found.' }, 404);

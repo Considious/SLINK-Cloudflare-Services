@@ -131,18 +131,6 @@ test('returns the full opponent membership IDs for inside-hit safety', () => {
   assert.match(worker, /inside_block_mode/);
 });
 
-test('publishes separately assignable theme permissions in the existing catalog', () => {
-  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
-  for (const scope of [
-    'slink.theme.pursuit',
-    'slink.theme.underglow',
-    'slink.theme.black-chrome'
-  ]) {
-    assert.match(worker, new RegExp(scope.replaceAll('.', '\\.')));
-  }
-  assert.match(worker, /category:'Themes'/);
-});
-
 test('publishes only declarative visual data in the central theme catalog', () => {
   const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
   assert.equal(catalog.schemaVersion, 1);
@@ -152,4 +140,18 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.match(worker, /\/api\/themes/);
   assert.match(worker, /validateThemeCatalog/);
   assert.match(worker, /THEME_CATALOG_KV_KEY/);
+});
+
+test('leaves generic permission sessions and grants outside the War Worker', () => {
+  const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve(directory, 'package.json'), 'utf8'));
+  const migration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0008-adhd-dashboard.sql'), 'utf8');
+  assert.equal(packageJson.version, '0.8.0');
+  assert.doesNotMatch(worker, /\/api\/permissions\/auth/);
+  assert.doesNotMatch(worker, /\/api\/admin\/scopes/);
+  assert.doesNotMatch(worker, /\/api\/admin\/users/);
+  for (const scope of ['slink.adhd.alerts', 'slink.adhd.marketwatch.5', 'slink.adhd.marketwatch.10', 'slink.adhd.marketwatch.15', 'slink.adhd.marketwatch.20']) {
+    assert.match(migration, new RegExp(scope.replaceAll('.', '\\.')));
+  }
+  assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);
 });

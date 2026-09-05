@@ -14,11 +14,15 @@ access is then resolved from this database:
 - Considious [3853023] receives `admin.*` through a permanent direct grant.
 
 Product Workers must additionally reject `admin.*` for every user except Torn
-ID `3853023`. The Leveling Worker performs that hard check, so an accidental or
-malicious grant row cannot create another administrator.
+ID `3853023`. The Leveling, War, and Contribution permission-session paths
+perform that hard check, so an accidental or malicious grant row cannot create
+another administrator.
 
 Each product Worker binds this same database as `PERMISSIONS_DB` and enforces
 its own required scope. Browser clients never connect to D1 directly.
+The Contribution Worker owns generic extension permission sessions and the
+administrator grant endpoints; it does not replace each product Worker's own
+scope enforcement.
 
 ## Initial setup
 
@@ -61,6 +65,14 @@ to add the `Themes` catalog category and the separately assignable
 `slink.theme.black-chrome` cosmetic entitlements. These rows use the same
 `user_scope_grants` table and authentication flow as every other direct SLINK
 permission; no additional database or permission service is required.
+
+Apply [`migrations/0008-adhd-dashboard.sql`](migrations/0008-adhd-dashboard.sql)
+to add `slink.adhd.alerts` and the separately grantable Market/Bazaar Watch
+tiers `.5`, `.10`, `.15`, and `.20`. The migration grants basic API reminders
+to current Slinky's faction members and grants the owner the 20-slot test tier.
+It creates no new database or tables: D1 stores only the catalog and grant rows.
+Private timers, city-purchase progress, stock results, and watch data remain in
+the user's extension storage.
 
 ## Grant paid or manual Leveling access
 
