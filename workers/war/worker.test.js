@@ -145,12 +145,15 @@ test('publishes only declarative visual data in the central theme catalog', () =
 test('leaves generic permission sessions and grants outside the War Worker', () => {
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.resolve(directory, 'package.json'), 'utf8'));
-  const migration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0008-adhd-dashboard.sql'), 'utf8');
+  const migration = [
+    fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0008-adhd-dashboard.sql'), 'utf8'),
+    fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0009-market-watch-tiers.sql'), 'utf8')
+  ].join('\n');
   assert.equal(packageJson.version, '0.8.0');
   assert.doesNotMatch(worker, /\/api\/permissions\/auth/);
   assert.doesNotMatch(worker, /\/api\/admin\/scopes/);
   assert.doesNotMatch(worker, /\/api\/admin\/users/);
-  for (const scope of ['slink.adhd.alerts', 'slink.adhd.marketwatch.5', 'slink.adhd.marketwatch.10', 'slink.adhd.marketwatch.15', 'slink.adhd.marketwatch.20']) {
+  for (const scope of ['slink.adhd.alerts', 'slink.adhd.marketwatch.5', 'slink.adhd.marketwatch.10', 'slink.adhd.marketwatch.15', 'slink.adhd.marketwatch.20', 'slink.adhd.marketwatch.25', 'slink.adhd.marketwatch.30', 'slink.adhd.marketwatch.35', 'slink.adhd.marketwatch.40']) {
     assert.match(migration, new RegExp(scope.replaceAll('.', '\\.')));
   }
   assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);
