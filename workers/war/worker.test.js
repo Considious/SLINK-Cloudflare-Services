@@ -134,8 +134,15 @@ test('returns the full opponent membership IDs for inside-hit safety', () => {
 test('publishes only declarative visual data in the central theme catalog', () => {
   const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.themes.length, 4);
+  assert.equal(catalog.themes.length, 5);
   assert.ok(catalog.themes.every(theme => theme.id && theme.tokens && !JSON.stringify(theme).match(/<script|javascript:|url\s*\(/i)));
+  const dragonsBreath = catalog.themes.find(theme => theme.id === 'slinky-dragons-breath');
+  assert.equal(dragonsBreath?.label, "Dragon's Breath");
+  assert.equal(dragonsBreath?.scope, 'slink.theme.dragons-breath');
+  assert.equal(dragonsBreath?.ornament, 'coil');
+  assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);
+  const permissionMigration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0010-dragons-breath-theme.sql'), 'utf8');
+  assert.match(permissionMigration, /'slink\.theme\.dragons-breath'/);
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
   assert.match(worker, /\/api\/themes/);
   assert.match(worker, /validateThemeCatalog/);
@@ -145,12 +152,15 @@ test('publishes only declarative visual data in the central theme catalog', () =
 test('leaves generic permission sessions and grants outside the War Worker', () => {
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.resolve(directory, 'package.json'), 'utf8'));
-  const migration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0008-adhd-dashboard.sql'), 'utf8');
+  const migration = [
+    fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0008-adhd-dashboard.sql'), 'utf8'),
+    fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0009-market-watch-tiers.sql'), 'utf8')
+  ].join('\n');
   assert.equal(packageJson.version, '0.8.0');
   assert.doesNotMatch(worker, /\/api\/permissions\/auth/);
   assert.doesNotMatch(worker, /\/api\/admin\/scopes/);
   assert.doesNotMatch(worker, /\/api\/admin\/users/);
-  for (const scope of ['slink.adhd.alerts', 'slink.adhd.marketwatch.5', 'slink.adhd.marketwatch.10', 'slink.adhd.marketwatch.15', 'slink.adhd.marketwatch.20']) {
+  for (const scope of ['slink.adhd.alerts', 'slink.adhd.marketwatch.5', 'slink.adhd.marketwatch.10', 'slink.adhd.marketwatch.15', 'slink.adhd.marketwatch.20', 'slink.adhd.marketwatch.25', 'slink.adhd.marketwatch.30', 'slink.adhd.marketwatch.35', 'slink.adhd.marketwatch.40']) {
     assert.match(migration, new RegExp(scope.replaceAll('.', '\\.')));
   }
   assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-08-26.1",
-  "updatedAt": "2026-08-26T00:00:00Z",
+  "revision": "2026-09-12.1",
+  "updatedAt": "2026-09-12T00:00:00Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -150,6 +150,44 @@
         "--slink-glow-right": "rgba(255, 255, 255, .16)",
         "--slink-metal": "#f1f2f3",
         "--slink-metal-dark": "#505458"
+      }
+    },
+    {
+      "id": "slinky-dragons-breath",
+      "label": "Dragon's Breath",
+      "description": "Obsidian, heat-darkened metal, and white-hot ember accents.",
+      "scope": "slink.theme.dragons-breath",
+      "ornament": "coil",
+      "swatch": ["#060302", "#e34710", "#ffd49a"],
+      "tokens": {
+        "--slink-bg": "#060302",
+        "--slink-bg-raised": "#160a06",
+        "--slink-bg-control": "#24110b",
+        "--slink-surface": "#0c0604",
+        "--slink-card": "#0a0503",
+        "--slink-control": "#27130c",
+        "--slink-border": "rgba(245, 103, 35, .68)",
+        "--slink-border-soft": "rgba(255, 194, 142, .20)",
+        "--slink-text": "#fff4e8",
+        "--slink-muted": "#c1aaa0",
+        "--slink-accent": "#e34710",
+        "--slink-accent-alt": "#ff9a35",
+        "--slink-ready": "#91e59c",
+        "--slink-warning": "#ffc061",
+        "--slink-error": "#ff6751",
+        "--slink-danger-bg": "#4a160e",
+        "--slink-link": "#ffad62",
+        "--slink-shadow": "rgba(0, 0, 0, .84)",
+        "--slink-page-bg": "radial-gradient(circle at 8% 0, rgba(214, 48, 13, .26), transparent 34%), radial-gradient(circle at 92% 100%, rgba(255, 118, 20, .18), transparent 37%), linear-gradient(145deg, #0b0705, #020101)",
+        "--slink-topbar-bg": "linear-gradient(90deg, rgba(25, 8, 4, .98), rgba(5, 3, 3, .98) 52%, rgba(29, 10, 4, .98))",
+        "--slink-panel-bg": "linear-gradient(145deg, rgba(20, 11, 8, .98), rgba(6, 4, 3, .99))",
+        "--slink-button-bg": "linear-gradient(180deg, #d83b0c, #6f1808 52%, #2b0b06)",
+        "--slink-selected-bg": "linear-gradient(135deg, #ff741f, #b72b0a 50%, #4b0e05)",
+        "--slink-mark-bg": "linear-gradient(145deg, #ffe5bf, #db6e28 35%, #431309 58%, #ffad55)",
+        "--slink-glow-left": "rgba(255, 72, 18, .42)",
+        "--slink-glow-right": "rgba(255, 153, 45, .34)",
+        "--slink-metal": "#f2cfaa",
+        "--slink-metal-dark": "#5d3527"
       }
     }
   ]

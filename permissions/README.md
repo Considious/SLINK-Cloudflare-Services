@@ -74,6 +74,13 @@ It creates no new database or tables: D1 stores only the catalog and grant rows.
 Private timers, city-purchase progress, stock results, and watch data remain in
 the user's extension storage.
 
+Apply [`migrations/0009-market-watch-tiers.sql`](migrations/0009-market-watch-tiers.sql)
+to extend the Market Watch permission ladder through 40 slots, then apply
+[`migrations/0010-dragons-breath-theme.sql`](migrations/0010-dragons-breath-theme.sql)
+to add the separately assignable `slink.theme.dragons-breath` cosmetic
+entitlement. The existing `admin.*` wildcard also unlocks this theme through
+the shared client permission resolver.
+
 ## Grant paid or manual Leveling access
 
 All timestamps use Unix milliseconds. Replace the example user, expiration,
