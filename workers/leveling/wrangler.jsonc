@@ -28,6 +28,12 @@
       "database_id": "2debd2fe-69b6-42e3-acc9-2a567d170928"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "LEVELING_SNAPSHOTS",
+      "bucket_name": "slink-leveling-snapshots"
+    }
+  ],
   "secrets": {
     "required": [
       "ADMIN_TOKEN",

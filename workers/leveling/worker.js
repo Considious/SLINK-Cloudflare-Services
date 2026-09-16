@@ -1,14 +1,27 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.15.7-indexed-scheduling
+ * Release: 0.16.0-r2-hourly-scheduling
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
  * as X-Slinky-Worker-Version, making the active source easy to identify.
  */
 
-const WORKER_VERSION = '0.15.7-indexed-scheduling';
+import {
+    LEVELING_DORMANT_KEY,
+    LEVELING_SCHEDULE_KEY,
+    collectorKey,
+    readJsonObject
+} from './hourly-schedule.js';
+import {
+    materializeDailyLevelingBackup,
+    materializeHourlyLeveling,
+    shouldMaterializeHourly,
+    shouldWriteDailyBackup
+} from './hourly-materializer.js';
+
+const WORKER_VERSION = '0.16.0-r2-hourly-scheduling';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -219,6 +232,20 @@ const worker = {
         }
 
         if (
+            url.pathname === '/api/checks/hourly-schedule' &&
+            request.method === 'GET'
+        ) {
+            const authorization = await authorizeRequest(
+                request,
+                env,
+                LEVELING_SCOPE
+            );
+            if (authorization.response) return authorization.response;
+
+            return handleHourlyCheckSchedule(env, authorization.session);
+        }
+
+        if (
             url.pathname === '/api/checks/claim' &&
             request.method === 'POST'
         ) {
@@ -343,6 +370,8 @@ const worker = {
     },
 
     async scheduled(controller, env) {
+        await runScheduledR2Maintenance(env, controller.scheduledTime);
+
         try {
             const result = await discoverLevelingTargets(env);
             console.log(JSON.stringify({
@@ -385,6 +414,161 @@ const worker = {
 };
 
 export default worker;
+
+
+async function runScheduledR2Maintenance(env, scheduledTime = Date.now()) {
+    const now = Number(scheduledTime) || Date.now();
+    if (!env.LEVELING_SNAPSHOTS) {
+        return { configured: false };
+    }
+
+    const result = { configured: true };
+
+    if (shouldMaterializeHourly(now)) {
+        try {
+            const materialized = await materializeHourlyLeveling({
+                db: env.DB,
+                bucket: env.LEVELING_SNAPSHOTS,
+                now
+            });
+            result.hourly = materialized.writes;
+            console.log(JSON.stringify({
+                event: 'slink_leveling_hourly_schedule_published',
+                version: WORKER_VERSION,
+                scheduled_at: now,
+                counts: materialized.schedule.counts,
+                writes: materialized.writes
+            }));
+        } catch (error) {
+            result.hourly_error = errorMessage(error);
+            console.error(JSON.stringify({
+                event: 'slink_leveling_hourly_schedule_failed',
+                version: WORKER_VERSION,
+                scheduled_at: now,
+                error: result.hourly_error
+            }));
+        }
+    }
+
+    if (shouldWriteDailyBackup(now)) {
+        try {
+            const dormant = await readJsonObject(
+                env.LEVELING_SNAPSHOTS,
+                LEVELING_DORMANT_KEY
+            ) || { targets: [] };
+            const backup = await materializeDailyLevelingBackup({
+                db: env.DB,
+                bucket: env.LEVELING_SNAPSHOTS,
+                dormant,
+                workerVersion: WORKER_VERSION,
+                now
+            });
+            result.backup = backup.write;
+            console.log(JSON.stringify({
+                event: 'slink_leveling_daily_backup_published',
+                version: WORKER_VERSION,
+                scheduled_at: now,
+                counts: backup.backup.counts,
+                write: backup.write
+            }));
+        } catch (error) {
+            result.backup_error = errorMessage(error);
+            console.error(JSON.stringify({
+                event: 'slink_leveling_daily_backup_failed',
+                version: WORKER_VERSION,
+                scheduled_at: now,
+                error: result.backup_error
+            }));
+        }
+    }
+
+    return result;
+}
+
+
+async function handleHourlyCheckSchedule(env, session) {
+    if (!env.LEVELING_SNAPSHOTS) {
+        return jsonResponse(
+            {
+                ok: false,
+                error: 'The hourly R2 schedule is not configured.',
+                code: 'hourly_schedule_not_configured'
+            },
+            503
+        );
+    }
+
+    try {
+        const schedule = await readJsonObject(
+            env.LEVELING_SNAPSHOTS,
+            LEVELING_SCHEDULE_KEY
+        );
+        if (!schedule) {
+            return jsonResponse(
+                {
+                    ok: false,
+                    error: 'The hourly schedule has not been generated yet.',
+                    code: 'hourly_schedule_missing'
+                },
+                503
+            );
+        }
+
+        const now = Date.now();
+        if (now >= Number(schedule.fallback_until || schedule.valid_until || 0)) {
+            return jsonResponse(
+                {
+                    ok: false,
+                    error: 'The hourly schedule is stale.',
+                    code: 'hourly_schedule_stale',
+                    generation: schedule.generation,
+                    valid_until: schedule.valid_until,
+                    fallback_until: schedule.fallback_until
+                },
+                503
+            );
+        }
+
+        const key = collectorKey(session);
+        const targets = Array.isArray(schedule.assignments?.[key])
+            ? schedule.assignments[key]
+            : [];
+        const checks = targets.flatMap(target => {
+            return (Array.isArray(target.due_at) ? target.due_at : [])
+                .map(dueAt => ({
+                    ...target,
+                    due_at: Number(dueAt),
+                    freshness_checkpoint_required:
+                        Number(target.freshness_due_at) === Number(dueAt),
+                    check_batch_id: checkBatchId(
+                        session,
+                        routineCheckBucket(Number(dueAt))
+                    )
+                }));
+        });
+        const assigned = Array.isArray(schedule.collector_roster) &&
+            schedule.collector_roster.some(collector => collector.key === key);
+
+        return jsonResponse({
+            ok: true,
+            coordination: 'r2_hourly_v1',
+            generation: schedule.generation,
+            generated_at: schedule.generated_at,
+            valid_from: schedule.valid_from,
+            valid_until: schedule.valid_until,
+            fallback_until: schedule.fallback_until,
+            collector_assigned: assigned,
+            collector_key: key,
+            collector_count: schedule.counts?.collectors || 0,
+            assigned_target_count: targets.length,
+            count: checks.length,
+            checks,
+            next_refresh_at: schedule.valid_until
+        });
+    } catch (error) {
+        return workerErrorResponse('Could not load the hourly schedule.', error);
+    }
+}
 
 
 // ================================================================
@@ -3927,6 +4111,7 @@ export const testing = {
     parseCsv,
     parseStatNumber,
     rapidPenalty,
+    runScheduledR2Maintenance,
     runScheduledVirtualCollector,
     selectScheduledCheckTargets,
     schedulingShardsForCollector,

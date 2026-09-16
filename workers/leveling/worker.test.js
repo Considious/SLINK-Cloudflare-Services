@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.15.7-indexed-scheduling';
+const WORKER_VERSION = '0.16.0-r2-hourly-scheduling';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -1354,6 +1354,104 @@ describe('SLINK Leveling Worker', () => {
     });
 
 
+    it('publishes R2 schedules hourly and serves only the collector assignment', async () => {
+        const now = Date.UTC(2026, 8, 15, 18, 0, 0);
+        Date.now = () => now;
+        const db = createDatabase();
+        const bucket = new MemoryR2Bucket();
+        db.sqlite.prepare(`
+            INSERT INTO client_user_collectors (
+                user_id, session_id, claimed_at, last_seen_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?)
+        `).run(5001, 'r2-desktop', now - 1000, now - 1000, now + 300_000);
+        db.sqlite.prepare(`
+            INSERT INTO client_user_collectors (
+                user_id, session_id, claimed_at, last_seen_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?)
+        `).run(5002, 'r2-mobile', now - 1000, now - 1000, now + 300_000);
+
+        const maintenance = await testing.runScheduledR2Maintenance(
+            { DB: db, LEVELING_SNAPSHOTS: bucket },
+            now
+        );
+        assert.equal(maintenance.configured, true);
+        assert.equal(maintenance.hourly.schedule.scheduled_targets, 6);
+        assert.ok(bucket.objects.has('leveling/schedule/current.json'));
+        assert.ok(bucket.objects.has('leveling/dormant/current.json'));
+
+        const token = await sessionToken(5001, 'r2-desktop');
+        const response = await worker.fetch(
+            authenticatedRequest(
+                'https://worker.example/api/checks/hourly-schedule',
+                token
+            ),
+            {
+                DB: db,
+                SESSION_SECRET,
+                LEVELING_SNAPSHOTS: bucket
+            }
+        );
+        const body = await response.json();
+        const storedSchedule = JSON.parse(
+            bucket.objects.get('leveling/schedule/current.json').text
+        );
+
+        assert.equal(response.status, 200);
+        assert.equal(body.coordination, 'r2_hourly_v1');
+        assert.equal(body.collector_assigned, true);
+        assert.equal(body.collector_key, '5001:r2-desktop');
+        assert.equal(
+            body.assigned_target_count +
+                storedSchedule.assignments['5002:r2-mobile'].length,
+            storedSchedule.counts.scheduled_targets
+        );
+        assert.equal(
+            body.checks.every(check => {
+                return check.check_batch_id.startsWith('r2-desktop:') &&
+                    Number.isFinite(check.due_at);
+            }),
+            true
+        );
+        assert.equal(body.count, body.checks.length);
+
+        const backupTime = Date.UTC(2026, 8, 15, 23, 55, 0);
+        const backup = await testing.runScheduledR2Maintenance(
+            { DB: db, LEVELING_SNAPSHOTS: bucket },
+            backupTime
+        );
+        assert.match(backup.backup.key, /^leveling\/backups\/2026-09-15\.json$/);
+        assert.equal(
+            [...bucket.objects.keys()].filter(key => {
+                return key.startsWith('leveling/backups/');
+            }).length,
+            1
+        );
+    });
+
+
+    it('leaves the existing Worker usable when R2 is not configured', async () => {
+        const db = createDatabase();
+        const token = await sessionToken(5003, 'no-r2');
+        const response = await worker.fetch(
+            authenticatedRequest(
+                'https://worker.example/api/checks/hourly-schedule',
+                token
+            ),
+            { DB: db, SESSION_SECRET }
+        );
+
+        assert.equal(response.status, 503);
+        assert.equal(
+            (await response.json()).code,
+            'hourly_schedule_not_configured'
+        );
+        assert.deepEqual(
+            await testing.runScheduledR2Maintenance({ DB: db }, Date.now()),
+            { configured: false }
+        );
+    });
+
+
     it('elects one collector per user and fails over between devices', async () => {
         let now = 1_800_000_000_000;
         Date.now = () => now;
@@ -1955,6 +2053,49 @@ class D1StatementAdapter {
                 last_row_id: Number(result.lastInsertRowid || 0)
             }
         };
+    }
+}
+
+
+class MemoryR2Bucket {
+    constructor() {
+        this.objects = new Map();
+    }
+
+    async put(key, value, options = {}) {
+        const object = {
+            key,
+            text: String(value),
+            customMetadata: options.customMetadata || {},
+            uploaded: new Date()
+        };
+        this.objects.set(key, object);
+        return object;
+    }
+
+    async get(key) {
+        const object = this.objects.get(key);
+        if (!object) return null;
+        return { ...object, json: async () => JSON.parse(object.text) };
+    }
+
+    async head(key) {
+        return this.objects.get(key) || null;
+    }
+
+    async list({ prefix = '' } = {}) {
+        return {
+            objects: [...this.objects.values()].filter(object => {
+                return object.key.startsWith(prefix);
+            }),
+            truncated: false
+        };
+    }
+
+    async delete(keys) {
+        for (const key of Array.isArray(keys) ? keys : [keys]) {
+            this.objects.delete(key);
+        }
     }
 }
 

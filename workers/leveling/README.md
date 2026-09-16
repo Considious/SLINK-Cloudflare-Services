@@ -9,10 +9,10 @@ deployment credentials or member API keys.
 Every deployable source change updates `WORKER_VERSION` near the top of
 `worker.js`. The root route, health route, and every response header expose that
 version. The current release is identified as
-`0.15.7-indexed-scheduling`. It replaces the recurring 2,000-row scheduling
-snapshot with indexed, server-assigned target shards. Active collectors receive
-only their own due rows, and donated-key collection runs once from the existing
-five-minute Cron Trigger instead of once per user activity report.
+`0.16.0-r2-hourly-scheduling`. It adds an R2-backed hourly schedule and daily
+recovery backups without removing the existing indexed five-minute claim
+route. This makes the rollout additive: the new client can be tested against
+R2 while the deployed client continues using the existing D1 scheduler.
 
 ## Cloudflare configuration
 
@@ -22,6 +22,8 @@ The Worker expects:
 - `CONSENT_DB`: the separate append-only SLINK terms acceptance database;
 - `PERMISSIONS_DB`: the standalone `slink-permissions` D1 database described in
   [`../../permissions`](../../permissions/README.md);
+- `LEVELING_SNAPSHOTS`: the private `slink-leveling-snapshots` R2 bucket used
+  for hourly schedules, dormant-target snapshots, and daily recovery backups;
 - `CONTRIBUTION_SERVICE`: a Worker service binding to
   `slinkcontributionworker`;
 - `ADMIN_TOKEN`: the secret protecting `/api/admin/*`;
@@ -37,7 +39,10 @@ The discovery filter uses three optional, non-secret Worker variables:
 - `FFSCOUTER_LEVELING_MAX_LEVEL` (default `100`);
 - `FFSCOUTER_LEVELING_MAX_STATS` (default `2000`).
 
-Keep all secrets in Cloudflare and out of this repository.
+Keep all secrets in Cloudflare and out of this repository. Create the R2 bucket
+before deploying this release. The bucket is private and does not need a public
+hostname; the authenticated Worker route returns only the calling collector's
+assignment.
 
 ## Required versioned consent
 
@@ -144,6 +149,25 @@ preventing collector count from multiplying whole-catalog D1 reads. PC and
 mobile sessions for one Torn user still consume one collector share, because
 only that user's elected session participates.
 
+Release 0.16.0 materializes that shared timing into R2 once at the start of
+each UTC hour. The roster is frozen for the hour and work is balanced by total
+scheduled check count. Clients read their own assignment from
+`GET /api/checks/hourly-schedule`, execute its exact `due_at` timestamps, and
+refresh at `next_refresh_at`. A collector that appears after the hourly build
+waits for the next generation; no mid-hour D1 scheduler rebuild is performed.
+
+Permanent Federal and Hiding Out rows are omitted from collector assignments
+and written to `leveling/dormant/current.json`. The dormant object is rewritten
+only when its meaningful contents change. D1 remains authoritative during this
+staged release, so no dormant row is destructively deleted while the R2 path is
+being proven.
+
+At 23:55 UTC the Worker writes a full recovery object under
+`leveling/backups/YYYY-MM-DD.json`. It includes target/status rows, hospital
+events, activity rows, the dormant snapshot, counts, Worker version, and an R2
+SHA-256 fingerprint. After a successful write, the oldest objects are pruned so
+exactly the newest 25 daily backups remain.
+
 Recommendation ranking is source-neutral. Baldr, Legacy, Extra, and every other
 source label are metadata only and never boost or penalize a target. The
 member's locally derived stat range removes obvious strength mismatches before
@@ -165,6 +189,7 @@ available pool permits it.
 | `GET` | `/api/recommendations` | `slink.level` | Return targets and renew collector coordination |
 | `POST` | `/api/user/activity` | `slink.level` | Record an explicit interface interaction and maintain the 20-minute real-user demand window |
 | `POST` | `/api/collector/heartbeat` | `slink.level` | Backward-compatible manual collector renewal |
+| `GET` | `/api/checks/hourly-schedule` | `slink.level` | Read only the signed collector session's current R2 hourly assignment |
 | `POST` | `/api/checks/claim` | `slink.level` | Receive due targets from the current collector's indexed scheduling shards |
 | `POST` | `/api/observations` | `slink.level` | Submit status observations |
 | `POST` | `/api/contributor/checks/claim` | `slink.contribute` | Receive scheduled contribution work only while real-user demand exists |
@@ -231,6 +256,12 @@ scheduling indexes for the 64-shard due-target queries. Apply this migration
 before deploying Worker 0.15.7. It belongs only to the Leveling database, not
 the permissions or consent databases.
 
+Release 0.16.0 requires no D1 migration. Before deployment, create the private
+R2 bucket `slink-leveling-snapshots` so the `LEVELING_SNAPSHOTS` binding in
+`wrangler.jsonc` resolves. Keep the existing `/api/checks/claim` client enabled
+until an R2 schedule has been generated, inspected, and the updated client has
+been verified. Do not delete dormant D1 rows during this first rollout.
+
 The separate consent database uses
 `consent-database/0001-terms-acceptances.sql`. Run that schema only against the
 consent database, then bind it to the Worker as `CONSENT_DB`. It is intentionally
@@ -252,3 +283,7 @@ local-only Fair Fight estimates, collector failover, fair check sharing,
 interval pacing, fail-closed versioned consent, append-only acceptance records,
 old-session invalidation, centralized grants, purchase-expiry capping,
 admin-only zero contribution, parsing, and CORS.
+The R2 suite additionally covers exact hourly timing, balanced frozen-roster
+assignments, two-query hourly D1 materialization, unchanged dormant-object
+deduplication, authenticated per-collector delivery, full daily backup
+contents, SHA-256 fingerprints, and 25-day retention.
