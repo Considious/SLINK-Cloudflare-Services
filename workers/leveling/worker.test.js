@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.16.0-r2-hourly-scheduling';
+const WORKER_VERSION = '0.16.1-admin-manual-backup';
 const TERMS_VERSION = '2026-08-24';
 const TERMS_DOCUMENT_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -1426,6 +1426,43 @@ describe('SLINK Leveling Worker', () => {
             }).length,
             1
         );
+    });
+
+
+    it('creates the normal retained R2 backup through the admin endpoint', async () => {
+        const now = Date.UTC(2026, 8, 16, 3, 15, 0);
+        Date.now = () => now;
+        const db = createDatabase();
+        const bucket = new MemoryR2Bucket();
+        const env = {
+            DB: db,
+            LEVELING_SNAPSHOTS: bucket,
+            ADMIN_TOKEN: 'correct-admin-token'
+        };
+
+        const denied = await worker.fetch(
+            new Request('https://worker.example/api/admin/backups/run', {
+                method: 'POST'
+            }),
+            env
+        );
+        assert.equal(denied.status, 401);
+
+        const response = await worker.fetch(
+            new Request('https://worker.example/api/admin/backups/run', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': 'correct-admin-token' }
+            }),
+            env
+        );
+        const body = await response.json();
+
+        assert.equal(response.status, 200);
+        assert.equal(body.ok, true);
+        assert.equal(body.backup.key, 'leveling/backups/2026-09-16.json');
+        assert.equal(body.backup.counts.targets, 6);
+        assert.equal(body.backup.retained, 1);
+        assert.ok(bucket.objects.has(body.backup.key));
     });
 
 

@@ -198,6 +198,7 @@ available pool permits it.
 | `POST` | `/api/fair-fight` | `slink.level` | Deprecated no-op; Fair Fight stays local |
 | `POST` | `/api/admin/bootstrap-targets` | `admin.*` or admin token | Refresh targets from the master CSV |
 | `POST` | `/api/admin/discover-targets` | `admin.*` or admin token | Run one FFScouter leveling-catalog discovery pass |
+| `POST` | `/api/admin/backups/run` | `admin.*` or admin token | Write an immediate R2 recovery backup and apply normal retention |
 | `GET` | `/api/admin/targets` | `admin.*` or admin token | Inspect paginated targets |
 
 Scoped routes use `Authorization: Bearer <session token>`. Admin routes accept

@@ -1,7 +1,7 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.16.0-r2-hourly-scheduling
+ * Release: 0.16.1-admin-manual-backup
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
@@ -21,7 +21,7 @@ import {
     shouldWriteDailyBackup
 } from './hourly-materializer.js';
 
-const WORKER_VERSION = '0.16.0-r2-hourly-scheduling';
+const WORKER_VERSION = '0.16.1-admin-manual-backup';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -350,6 +350,17 @@ const worker = {
         }
 
         if (
+            url.pathname === '/api/admin/backups/run' &&
+            request.method === 'POST'
+        ) {
+            if (!await isAdminRequest(request, env)) {
+                return unauthorizedAdminResponse();
+            }
+
+            return handleManualLevelingBackup(env);
+        }
+
+        if (
             url.pathname === '/api/admin/targets' &&
             request.method === 'GET'
         ) {
@@ -483,6 +494,62 @@ async function runScheduledR2Maintenance(env, scheduledTime = Date.now()) {
     }
 
     return result;
+}
+
+
+async function handleManualLevelingBackup(env) {
+    if (!env.LEVELING_SNAPSHOTS) {
+        return jsonResponse(
+            {
+                ok: false,
+                error: 'The Leveling R2 snapshot binding is not configured.',
+                code: 'leveling_backup_not_configured'
+            },
+            503
+        );
+    }
+
+    const now = Date.now();
+
+    try {
+        const dormant = await readJsonObject(
+            env.LEVELING_SNAPSHOTS,
+            LEVELING_DORMANT_KEY
+        ) || { targets: [] };
+        const result = await materializeDailyLevelingBackup({
+            db: env.DB,
+            bucket: env.LEVELING_SNAPSHOTS,
+            dormant,
+            workerVersion: WORKER_VERSION,
+            now
+        });
+
+        console.log(JSON.stringify({
+            event: 'slink_leveling_manual_backup_published',
+            version: WORKER_VERSION,
+            requested_at: now,
+            counts: result.backup.counts,
+            write: result.write
+        }));
+
+        return jsonResponse({
+            ok: true,
+            backup: {
+                generated_at: result.backup.generated_at,
+                generated_at_iso: result.backup.generated_at_iso,
+                counts: result.backup.counts,
+                ...result.write
+            }
+        });
+    } catch (error) {
+        console.error(JSON.stringify({
+            event: 'slink_leveling_manual_backup_failed',
+            version: WORKER_VERSION,
+            requested_at: now,
+            error: errorMessage(error)
+        }));
+        return workerErrorResponse('Could not create the manual backup.', error);
+    }
 }
 
 
