@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.0-mugging-broker',
+            version: '0.4.1-mugging-capacity',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -358,6 +358,48 @@ describe('SLINK Contribution Service', () => {
             SELECT rate_window_calls FROM donated_api_keys WHERE user_id = 3853023
         `).get();
         assert.equal(stored.rate_window_calls, 1);
+    });
+
+
+    it('reports aggregate mugging capacity across every active donated key', async () => {
+        const env = createEnv();
+        globalThis.fetch = tornFetch({ accessType:'Public Only', accessLevel:1 });
+        await worker.fetch(donationRequest('mugging-capacity-key'), env);
+        const original = env.PERMISSIONS_DB.sqlite.prepare(`
+            SELECT * FROM donated_api_keys WHERE user_id = 3853023
+        `).get();
+        const insert = env.PERMISSIONS_DB.sqlite.prepare(`
+            INSERT INTO donated_api_keys (
+                user_id, encrypted_key, encryption_iv, encryption_version,
+                management_token_sha256, access_type, status, terms_version,
+                terms_sha256, terms_accepted_at, created_at, updated_at,
+                last_validated_at, last_used_at, failure_count, last_error,
+                service_scope, calls_per_minute, rate_window_started_at,
+                rate_window_calls
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const [userId, limit] of [[4000001, 20], [4000002, 35]]) {
+            insert.run(
+                userId, original.encrypted_key, original.encryption_iv,
+                original.encryption_version, `${original.management_token_sha256}-${userId}`,
+                original.access_type, 'active', original.terms_version,
+                original.terms_sha256, original.terms_accepted_at, original.created_at,
+                original.updated_at, original.last_validated_at, null, 0, null,
+                'slink.mug-watch', limit, 0, 0
+            );
+        }
+
+        const response = await worker.fetch(
+            new Request('https://contribution.example/api/internal/mugging/capacity', {
+                headers:{ 'X-SLINK-Service-Token':SERVICE_TOKEN }
+            }),
+            env
+        );
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.key_count, 3);
+        assert.equal(body.configured_capacity, 75);
+        assert.equal(body.available_capacity, 75);
     });
 });
 

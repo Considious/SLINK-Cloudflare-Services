@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.0-mugging-broker
+ * Release: 0.4.1-mugging-capacity
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.0-mugging-broker';
+const WORKER_VERSION = '0.4.1-mugging-capacity';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -146,6 +146,13 @@ const worker = {
             request.method === 'POST'
         ) {
             return handleVirtualCollection(request, env);
+        }
+
+        if (
+            url.pathname === '/api/internal/mugging/capacity' &&
+            request.method === 'GET'
+        ) {
+            return handleMuggingCapacity(request, env);
         }
 
         if (
@@ -1214,28 +1221,7 @@ async function handleMuggingRequests(request, env) {
         }
 
         const now = Date.now();
-        const windowStartedAt = Math.floor(now / 60_000) * 60_000;
-        const result = await env.PERMISSIONS_DB.prepare(`
-            SELECT user_id, encrypted_key, encryption_iv, calls_per_minute,
-                   rate_window_started_at, rate_window_calls, last_used_at
-            FROM donated_api_keys
-            WHERE status = 'active'
-              AND service_scope = ?1
-              AND encrypted_key IS NOT NULL
-              AND encryption_iv IS NOT NULL
-            ORDER BY COALESCE(last_used_at, 0) ASC, user_id ASC
-        `).bind(MUGGING_SERVICE_ID).all();
-        const donors = (result.results || []).map(row => {
-            const sameWindow = Number(row.rate_window_started_at) === windowStartedAt;
-            const limit = boundedInteger(
-                row.calls_per_minute,
-                MUGGING_DEFAULT_CALLS_PER_MINUTE,
-                1,
-                60
-            );
-            const used = sameWindow ? Math.max(0, Number(row.rate_window_calls) || 0) : 0;
-            return { ...row, limit, used, assigned:[], apiKey:null };
-        });
+        const { donors, windowStartedAt } = await loadMuggingDonors(env, now);
 
         for (const item of requests) {
             const donor = donors
@@ -1365,6 +1351,59 @@ async function handleMuggingRequests(request, env) {
     } catch (error) {
         return requestErrorResponse(error);
     }
+}
+
+
+async function handleMuggingCapacity(request, env) {
+    try {
+        if (!await isServiceRequest(request, env)) {
+            return serviceAuthenticationRequired();
+        }
+        requireDonationConfiguration(env);
+        const now = Date.now();
+        const { donors, windowStartedAt } = await loadMuggingDonors(env, now);
+        return jsonResponse({
+            ok:true,
+            service_id:MUGGING_SERVICE_ID,
+            window_started_at:windowStartedAt,
+            key_count:donors.length,
+            configured_capacity:donors.reduce((sum, donor) => sum + donor.limit, 0),
+            used_capacity:donors.reduce((sum, donor) => sum + donor.used, 0),
+            available_capacity:donors.reduce(
+                (sum, donor) => sum + Math.max(0, donor.limit - donor.used),
+                0
+            )
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function loadMuggingDonors(env, now) {
+    const windowStartedAt = Math.floor(now / 60_000) * 60_000;
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT user_id, encrypted_key, encryption_iv, calls_per_minute,
+               rate_window_started_at, rate_window_calls, last_used_at
+        FROM donated_api_keys
+        WHERE status = 'active'
+          AND service_scope = ?1
+          AND encrypted_key IS NOT NULL
+          AND encryption_iv IS NOT NULL
+        ORDER BY COALESCE(last_used_at, 0) ASC, user_id ASC
+    `).bind(MUGGING_SERVICE_ID).all();
+    const donors = (result.results || []).map(row => {
+        const sameWindow = Number(row.rate_window_started_at) === windowStartedAt;
+        const limit = boundedInteger(
+            row.calls_per_minute,
+            MUGGING_DEFAULT_CALLS_PER_MINUTE,
+            1,
+            60
+        );
+        const used = sameWindow ? Math.max(0, Number(row.rate_window_calls) || 0) : 0;
+        return { ...row, limit, used, assigned:[], apiKey:null };
+    });
+    return { donors, windowStartedAt };
 }
 
 

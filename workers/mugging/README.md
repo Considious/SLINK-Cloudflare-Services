@@ -18,10 +18,12 @@ not share the Leveling Worker database, R2 bucket, scheduler, or target model.
 
 ## Initial collection rules
 
-- Oil Rig: 7, 8, and 9 stars.
-- Mining Corporation: 9 and 10 stars.
-- Television Network / TV Station: 9 and 10 stars.
-- Logistics Management: 9 and 10 stars.
+- Oil Rig: 7 through 10 stars.
+- Mining Corporation: 8 through 10 stars.
+- Television Network / TV Station: 8 through 10 stars.
+- Logistics Management: 8 through 10 stars.
+- Cruise Line Agency: 9 and 10 stars.
+- Private Security Firm: 8 through 10 stars.
 
 The daily Torn company snapshot supplies the company catalog. Employee status
 is collected company-by-company. The first complete cycle is a baseline, so
@@ -52,9 +54,12 @@ when a target is first populated and only when `FFSCOUTER_API_KEY` is set.
    cursor. The status response reports the estimated full-cycle duration and
    whether current donated-key capacity can meet the 15-minute goal.
 
-The `MUGGING_MAX_CALLS_PER_RUN` variable defaults to 100. The Contribution
-Worker still enforces each donated key's individual calls-per-minute setting
-(default 20) and the 40-external-subrequest safety limit per broker invocation.
+Each scheduled run asks the Contribution Worker for the active mugging-key
+pool's current capacity. The run budget is the sum of the capacity remaining
+on every key in that minute, so 50 keys configured for 20 calls each provide a
+1,000-call run budget. The Contribution Worker still reserves and enforces
+each key's individual limit and processes at most 40 external requests per
+broker invocation.
 
 ## Internal endpoints
 

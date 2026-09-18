@@ -3,31 +3,39 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, it } from 'node:test';
 
-import worker from './worker.js';
+import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
 
 describe('SLINK Mugging Intelligence Worker', () => {
     it('selects only the requested high-paying company tiers', () => {
         const csv = [
             'id,name,type,rating,employees_hired,employees_capacity',
-            '1,Oil Nine,1,9,10,10',
+            '1,Oil Seven,1,7,10,10',
             '2,Oil Ten,1,10,10,10',
-            '3,Mine Nine,2,9,10,10',
-            '4,TV Ten,3,10,10,10',
-            '5,Logistics Eight,4,8,10,10',
-            '6,Logistics Ten,4,10,10,10'
+            '3,Mine Eight,2,8,10,10',
+            '4,Mine Seven,2,7,10,10',
+            '5,TV Eight,3,8,10,10',
+            '6,Logistics Eight,4,8,10,10',
+            '7,Cruise Nine,5,9,10,10',
+            '8,Cruise Eight,5,8,10,10',
+            '9,Security Eight,6,8,10,10',
+            '10,Security Ten,6,10,10,10',
+            '11,Salon Ten,7,10,10,10'
         ].join('\n');
         const types = {
             companies:[
                 { id:1, name:'Oil Rig' },
                 { id:2, name:'Mining Corporation' },
                 { id:3, name:'Television Network' },
-                { id:4, name:'Logistics Management' }
+                { id:4, name:'Logistics Management' },
+                { id:5, name:'Cruise Line Agency' },
+                { id:6, name:'Private Security Firm' },
+                { id:7, name:'Hair Salon' }
             ]
         };
         assert.deepEqual(
-            testing.selectMuggingCompanies(csv, types).map(row => row.id).sort(),
-            [1, 3, 4, 6]
+            testing.selectMuggingCompanies(csv, types).map(row => row.id).sort((left, right) => left - right),
+            [1, 2, 3, 5, 6, 7, 9, 10]
         );
     });
 
@@ -141,6 +149,70 @@ describe('SLINK Mugging Intelligence Worker', () => {
 
         const denied = await worker.fetch(new Request('https://mugging.example/api/internal/run', { method:'POST' }), env);
         assert.equal(denied.status, 401);
+    });
+
+
+    it('uses the full aggregate donated-key capacity instead of a fixed 100-call ceiling', async () => {
+        const env = createEnv();
+        const companies = Array.from({ length:150 }, (_, index) => ({
+            id:index + 1,
+            name:`Rig ${index + 1}`,
+            type:1,
+            rating:9
+        }));
+        const csv = [
+            'id,name,type,rating,employees_hired,employees_capacity',
+            ...companies.map(row => `${row.id},${row.name},${row.type},${row.rating},1,10`)
+        ].join('\n');
+        let brokeredRequests = 0;
+        env.CONTRIBUTION_SERVICE = {
+            async fetch(input, init = {}) {
+                const pathname = new URL(String(input)).pathname;
+                if (pathname.endsWith('/capacity')) {
+                    return Response.json({
+                        ok:true,
+                        key_count:10,
+                        configured_capacity:200,
+                        used_capacity:50,
+                        available_capacity:150,
+                        window_started_at:Date.now()
+                    });
+                }
+                const requests = JSON.parse(init.body).requests;
+                brokeredRequests += requests.length;
+                return Response.json({
+                    ok:true,
+                    key_count:10,
+                    configured_capacity:200,
+                    calls_reserved:requests.length,
+                    available_capacity:Math.max(0, 150 - brokeredRequests),
+                    results:requests.map(request => {
+                        if (request.kind === 'company.types') {
+                            return {
+                                ...request,
+                                ok:true,
+                                body:{ companies:[{ id:1, name:'Oil Rig' }] }
+                            };
+                        }
+                        if (request.kind === 'company.snapshot') {
+                            return { ...request, ok:true, body:csv };
+                        }
+                        return { ...request, ok:true, body:{ company_employees:[] } };
+                    })
+                });
+            }
+        };
+
+        const result = await workerTesting.runMonitor(env);
+        assert.equal(result.calls, 150);
+        assert.equal(brokeredRequests, 150);
+        const status = JSON.parse(env.MUGGING_BUCKET.values.get('mugging/status/v1.json').body);
+        assert.equal(status.catalog_ruleset_version, 2);
+        assert.equal(status.summary.configured_calls_per_minute, 200);
+        assert.equal(status.summary.available_calls_at_run_start, 150);
+        assert.equal(status.summary.calls_budgeted_this_run, 150);
+        assert.equal(status.summary.calls_used_last_run, 150);
+        assert.equal('max_calls_per_minute' in status.summary, false);
     });
 });
 

@@ -4,7 +4,7 @@ import {
     runMuggingMonitor
 } from './monitor-core.js';
 
-const WORKER_VERSION = '0.1.0-r2-monitor';
+const WORKER_VERSION = '0.2.0-capacity-expanded-catalog';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -88,11 +88,40 @@ export default worker;
 
 
 async function runMonitor(env) {
+    const capacity = await getPublicRequestCapacity(env);
     return runMuggingMonitor(
         env,
         { executePublicRequests:requests => executePublicRequests(env, requests) },
-        { maxCalls:env.MUGGING_MAX_CALLS_PER_RUN }
+        {
+            maxCalls:capacity.available_capacity,
+            capacity
+        }
     );
+}
+
+
+async function getPublicRequestCapacity(env) {
+    if (!env.CONTRIBUTION_SERVICE || !env.CONTRIBUTION_SERVICE_TOKEN) {
+        throw new Error('Contribution Worker binding and token are required.');
+    }
+    const response = await env.CONTRIBUTION_SERVICE.fetch(
+        'https://slink-contribution.internal/api/internal/mugging/capacity',
+        {
+            method:'GET',
+            headers:{ 'X-SLINK-Service-Token':env.CONTRIBUTION_SERVICE_TOKEN }
+        }
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || `Contribution capacity check failed with HTTP ${response.status}.`);
+    }
+    return {
+        key_count:Math.max(0, Number(data.key_count) || 0),
+        configured_capacity:Math.max(0, Number(data.configured_capacity) || 0),
+        used_capacity:Math.max(0, Number(data.used_capacity) || 0),
+        available_capacity:Math.max(0, Number(data.available_capacity) || 0),
+        window_started_at:Math.max(0, Number(data.window_started_at) || 0)
+    };
 }
 
 
@@ -264,4 +293,9 @@ function errorMessage(error) {
 
 class RequestValidationError extends Error {}
 
-export const testing = Object.freeze({ executePublicRequests, handleHeartbeat });
+export const testing = Object.freeze({
+    executePublicRequests,
+    getPublicRequestCapacity,
+    handleHeartbeat,
+    runMonitor
+});

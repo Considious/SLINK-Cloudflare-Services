@@ -3,8 +3,9 @@ const STATUS_KEY = 'mugging/status/v1.json';
 const CATALOG_KEY = 'mugging/catalog/companies-v1.json';
 const EVENT_PREFIX = 'mugging/events';
 const STATE_SCHEMA = 1;
+const CATALOG_RULESET_VERSION = 2;
 const DEFAULT_MAX_CALLS_PER_RUN = 100;
-const MAX_CALLS_PER_RUN = 1_000;
+const MAX_CALLS_PER_RUN = 10_000;
 const CATALOG_REFRESH_MS = 24 * 60 * 60 * 1000;
 const RUN_LOCK_MS = 55 * 1000;
 const MUG_COOLDOWN_MS = 11 * 60 * 60 * 1000;
@@ -13,10 +14,12 @@ const FAIR_FIGHT_BATCH_SIZE = 100;
 const MAX_REPORTS_PER_REQUEST = 100;
 
 const COMPANY_RULES = Object.freeze([
-    { names: ['oil rig'], ratings: new Set([7, 8, 9]) },
-    { names: ['mining corporation', 'mining corp'], ratings: new Set([9, 10]) },
-    { names: ['television network', 'tv station', 'television'], ratings: new Set([9, 10]) },
-    { names: ['logistics management', 'logistics'], ratings: new Set([9, 10]) }
+    { names: ['oil rig'], ratings: new Set([7, 8, 9, 10]) },
+    { names: ['mining corporation', 'mining corp'], ratings: new Set([8, 9, 10]) },
+    { names: ['television network', 'tv station', 'television'], ratings: new Set([8, 9, 10]) },
+    { names: ['logistics management', 'logistics'], ratings: new Set([8, 9, 10]) },
+    { names: ['cruise line agency', 'cruise line'], ratings: new Set([9, 10]) },
+    { names: ['private security firm', 'private security'], ratings: new Set([8, 9, 10]) }
 ]);
 
 
@@ -41,25 +44,36 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
     const maxCalls = boundedInteger(
         options.maxCalls ?? env.MUGGING_MAX_CALLS_PER_RUN,
         DEFAULT_MAX_CALLS_PER_RUN,
-        1,
+        0,
         MAX_CALLS_PER_RUN
     );
+    const plannedCapacity = options.capacity && typeof options.capacity === 'object'
+        ? options.capacity
+        : {};
 
     let stateRecord = await readState(env.MUGGING_BUCKET);
     let state = stateRecord.state;
     let remainingCalls = maxCalls;
     let catalogUpdate = null;
     const scanResults = [];
-    let contributionSummary = { key_count:0, configured_capacity:0, available_capacity:0 };
+    let contributionSummary = {
+        key_count:Number(plannedCapacity.key_count) || 0,
+        configured_capacity:Number(plannedCapacity.configured_capacity) || 0,
+        available_capacity:Number(plannedCapacity.available_capacity) || 0
+    };
 
-    if (!state.company_ids.length || now - Number(state.catalog_updated_at || 0) >= CATALOG_REFRESH_MS) {
+    if (
+        !state.company_ids.length ||
+        Number(state.catalog_ruleset_version) !== CATALOG_RULESET_VERSION ||
+        now - Number(state.catalog_updated_at || 0) >= CATALOG_REFRESH_MS
+    ) {
         if (remainingCalls >= 2) {
             try {
                 const response = await executePublicRequests([
                     { request_id:'company-types', kind:'company.types' },
                     { request_id:'company-snapshot', kind:'company.snapshot' }
                 ]);
-                contributionSummary = response || contributionSummary;
+                contributionSummary = { ...contributionSummary, ...(response || {}) };
                 const byId = new Map((response?.results || []).map(result => [result.request_id, result]));
                 const typesResult = byId.get('company-types');
                 const snapshotResult = byId.get('company-snapshot');
@@ -68,7 +82,11 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
                 }
                 remainingCalls -= 2;
                 const companies = selectMuggingCompanies(snapshotResult.body, typesResult.body);
-                catalogUpdate = { generated_at: now, companies };
+                catalogUpdate = {
+                    generated_at:now,
+                    ruleset_version:CATALOG_RULESET_VERSION,
+                    companies
+                };
                 await env.MUGGING_BUCKET.put(CATALOG_KEY, JSON.stringify(catalogUpdate), jsonMetadata());
             } catch (error) {
                 console.error(JSON.stringify({ event:'slink_mugging_catalog_failed', error:errorMessage(error) }));
@@ -91,7 +109,7 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
     if (requests.length) {
         try {
             const response = await executePublicRequests(requests);
-            contributionSummary = response || contributionSummary;
+            contributionSummary = { ...contributionSummary, ...(response || {}) };
             for (const result of response?.results || []) {
                 const companyId = positiveInteger(String(result.request_id || '').replace('company-', ''));
                 const company = effectiveCompanies.find(row => Number(row.id) === companyId) || { id:companyId };
@@ -135,15 +153,23 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
             companies_checked: scanResults.length,
             errors: scanResults.filter(row => row.error).length,
             external_calls: callsMade,
-            key_count: Number(contributionSummary?.key_count) || 0
+            key_count: Number(contributionSummary?.key_count) || 0,
+            configured_capacity: Number(plannedCapacity.configured_capacity) ||
+                Number(contributionSummary?.configured_capacity) || 0,
+            available_capacity_at_start: Number(plannedCapacity.available_capacity) || 0,
+            call_budget: maxCalls
         };
         current.summary = summarizeState(
             current,
-            Number(contributionSummary?.key_count) || 0,
-            Math.min(
-                maxCalls,
-                Number(contributionSummary?.configured_capacity) || maxCalls
-            ),
+            {
+                keyCount:Number(plannedCapacity.key_count) ||
+                    Number(contributionSummary?.key_count) || 0,
+                configuredCapacity:Number(plannedCapacity.configured_capacity) ||
+                    Number(contributionSummary?.configured_capacity) || 0,
+                availableAtStart:Number(plannedCapacity.available_capacity) || 0,
+                callBudget:maxCalls,
+                callsUsed:callsMade
+            },
             now
         );
         return { events };
@@ -209,7 +235,13 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
             target.priority_multiplier = priorityMultiplier(target, now);
         }
         state.updated_at = now;
-        state.summary = summarizeState(state, 0, 0, now);
+        state.summary = summarizeState(state, {
+            keyCount:Number(state.last_run?.key_count) || 0,
+            configuredCapacity:Number(state.last_run?.configured_capacity) || 0,
+            availableAtStart:Number(state.last_run?.available_capacity_at_start) || 0,
+            callBudget:Number(state.last_run?.call_budget) || 0,
+            callsUsed:Number(state.last_run?.external_calls) || 0
+        }, now);
         return { events };
     });
     const events = commit.result.events || [];
@@ -231,6 +263,7 @@ export async function muggingStatus(env) {
 function statusFromState(state) {
     return {
         phase: state.phase,
+        catalog_ruleset_version:Number(state.catalog_ruleset_version) || 0,
         catalog_updated_at: Number(state.catalog_updated_at) || 0,
         companies_total: state.company_ids.length,
         companies_checked_in_cycle: Number(state.companies_checked_in_cycle) || 0,
@@ -348,6 +381,7 @@ function applyCatalog(state, catalog, now) {
         catalog_seen_at:now
     }]));
     state.company_ids = catalog.companies.map(company => Number(company.id));
+    state.catalog_ruleset_version = Number(catalog.ruleset_version) || CATALOG_RULESET_VERSION;
     state.catalog_updated_at = now;
     state.company_cursor = 0;
     state.companies_checked_in_cycle = 0;
@@ -585,6 +619,7 @@ function emptyState() {
     return {
         schema:STATE_SCHEMA,
         phase:'catalog',
+        catalog_ruleset_version:0,
         catalog_updated_at:0,
         company_ids:[],
         companies:{},
@@ -612,9 +647,11 @@ function normalizeState(value) {
 }
 
 
-function summarizeState(state, keyCount, maxCalls, now) {
+function summarizeState(state, capacity, now) {
     const companies = state.company_ids.length;
-    const effectiveCalls = maxCalls || Number(state.last_run?.external_calls) || 0;
+    const effectiveCalls = Number(capacity.callBudget) ||
+        Number(state.last_run?.call_budget) ||
+        Number(state.last_run?.external_calls) || 0;
     const estimatedCycleMinutes = effectiveCalls > 0 ? Math.ceil(companies / effectiveCalls) : 0;
     let unavailable = 0;
     let lowValue = 0;
@@ -627,8 +664,12 @@ function summarizeState(state, keyCount, maxCalls, now) {
         target_count:Object.keys(state.targets).length,
         unavailable_count:unavailable,
         consistently_low_value_count:lowValue,
-        configured_key_count:Number(keyCount) || Number(state.last_run?.key_count) || 0,
-        max_calls_per_minute:effectiveCalls,
+        configured_key_count:Number(capacity.keyCount) || Number(state.last_run?.key_count) || 0,
+        configured_calls_per_minute:Number(capacity.configuredCapacity) ||
+            Number(state.last_run?.configured_capacity) || 0,
+        available_calls_at_run_start:Number(capacity.availableAtStart) || 0,
+        calls_budgeted_this_run:Number(capacity.callBudget) || 0,
+        calls_used_last_run:Number(capacity.callsUsed) || 0,
         estimated_cycle_minutes:estimatedCycleMinutes,
         target_cycle_minutes:15,
         capacity_meets_target:companies === 0 || (estimatedCycleMinutes > 0 && estimatedCycleMinutes <= 15)
