@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test workers/leveling/worker.test.js workers/contribution/worker.test.js workers/war/worker.test.js",
+    "test": "node --test workers/leveling/worker.test.js workers/contribution/worker.test.js workers/mugging/worker.test.js workers/war/worker.test.js",
     "test:leveling": "node --test workers/leveling/worker.test.js",
     "test:contribution": "node --test workers/contribution/worker.test.js",
+    "test:mugging": "node --test workers/mugging/worker.test.js",
     "test:war": "node --test workers/war/worker.test.js"
   }
 }

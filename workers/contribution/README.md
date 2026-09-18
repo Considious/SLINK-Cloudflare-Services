@@ -1,5 +1,20 @@
 # SLINK Contribution Service
 
+## Mugging-key broker
+
+Donated Public Only keys are now scoped to `slink.mug-watch` by default. The
+dedicated Mugging Worker calls this Worker through a private service binding;
+it never receives plaintext keys. The broker accepts only three public Torn
+request kinds: company types, the daily company snapshot, and company
+employees. It enforces a per-key calls-per-minute limit (20 by default), caps
+each invocation at 40 requests, and persists only encrypted key material and
+small rate counters in the permissions D1 database.
+
+`POST /api/admin/donations/:userId/limit` lets the sole `admin.*` account set a
+specific donor limit from 1 through 60 calls per minute. Existing Leveling
+collection asks only for `slink.level` keys, so mugging-only donations cannot
+be consumed by Leveling.
+
 This Cloudflare Worker owns shared SLINK access services and the cross-product
 pool of donated Torn **Public Only** API keys. It is the permission gateway for
 non-product-specific extension features and the administrator grant UI. Product

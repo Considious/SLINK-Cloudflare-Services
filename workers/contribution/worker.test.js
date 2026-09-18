@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.3.0-permission-gateway',
+            version: '0.4.0-mugging-broker',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -77,6 +77,8 @@ describe('SLINK Contribution Service', () => {
             .prepare('SELECT * FROM donated_api_keys WHERE user_id = 3853023')
             .get();
         assert.equal(stored.status, 'active');
+        assert.equal(stored.service_scope, 'slink.mug-watch');
+        assert.equal(stored.calls_per_minute, 20);
         assert.ok(stored.encrypted_key);
         assert.ok(!stored.encrypted_key.includes('public-test-key'));
         assert.equal(
@@ -201,6 +203,9 @@ describe('SLINK Contribution Service', () => {
         const env = createEnv();
         globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1 });
         await worker.fetch(donationRequest('scheduler-key'), env);
+        env.PERMISSIONS_DB.sqlite.prepare(`
+            UPDATE donated_api_keys SET service_scope = 'slink.level'
+        `).run();
 
         const created = await worker.fetch(
             jsonRequest(
@@ -244,6 +249,9 @@ describe('SLINK Contribution Service', () => {
         const env = createEnv();
         globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1 });
         await worker.fetch(donationRequest('virtual-key'), env);
+        env.PERMISSIONS_DB.sqlite.prepare(`
+            UPDATE donated_api_keys SET service_scope = 'slink.level'
+        `).run();
 
         const admin = await worker.fetch(
             jsonRequest(
@@ -317,6 +325,40 @@ describe('SLINK Contribution Service', () => {
         assert.equal(deferredBody.deferred, true);
         assert.equal(deferredBody.selected_service, 'slink.mug-watch');
     });
+
+
+    it('brokers allowlisted company API calls without exposing donated keys', async () => {
+        const env = createEnv();
+        globalThis.fetch = tornFetch({ accessType:'Public Only', accessLevel:1 });
+        await worker.fetch(donationRequest('mugging-only-key'), env);
+
+        const response = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/internal/mugging/requests',
+                {
+                    requests:[{
+                        request_id:'company-321',
+                        kind:'company.employees',
+                        company_id:321
+                    }]
+                },
+                { 'X-SLINK-Service-Token':SERVICE_TOKEN }
+            ),
+            env
+        );
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.key_count, 1);
+        assert.equal(body.calls_reserved, 1);
+        assert.equal(body.results[0].ok, true);
+        assert.equal(body.results[0].body.company_employees[0].id, 123);
+        assert.ok(!JSON.stringify(body).includes('mugging-only-key'));
+
+        const stored = env.PERMISSIONS_DB.sqlite.prepare(`
+            SELECT rate_window_calls FROM donated_api_keys WHERE user_id = 3853023
+        `).get();
+        assert.equal(stored.rate_window_calls, 1);
+    });
 });
 
 
@@ -330,7 +372,10 @@ function createEnv() {
         '0005-permission-catalog.sql',
         '0006-war-officer.sql',
         '0007-theme-permissions.sql',
-        '0008-adhd-dashboard.sql'
+        '0008-adhd-dashboard.sql',
+        '0009-market-watch-tiers.sql',
+        '0010-dragons-breath-theme.sql',
+        '0011-mugging-contribution-keys.sql'
     ]) {
         sqlite.exec(readFileSync(
             new URL(`../../permissions/migrations/${migration}`, import.meta.url),
@@ -387,6 +432,15 @@ function tornFetch({ accessType, accessLevel }) {
                     id: 123,
                     status: { state: 'Okay', description: 'Okay', until: 0 }
                 }
+            });
+        }
+        if (url.pathname === '/v2/company/321/employees') {
+            return Response.json({
+                company_employees:[{
+                    id:123,
+                    name:'Test Employee',
+                    status:{ state:'Okay', description:'Okay', until:0 }
+                }]
             });
         }
         return Response.json({ error: { code: 404, error: 'Not found' } }, { status: 404 });

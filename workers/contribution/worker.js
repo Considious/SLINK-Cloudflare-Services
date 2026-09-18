@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.3.0-permission-gateway
+ * Release: 0.4.0-mugging-broker
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.3.0-permission-gateway';
+const WORKER_VERSION = '0.4.0-mugging-broker';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -54,6 +54,9 @@ const SERVICE_ACTIVITY_MS = 15 * 60 * 1000;
 const SERVICE_COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 const VIRTUAL_COLLECTOR_IDLE_MS = 20 * 60 * 1000;
 const MAX_VIRTUAL_CHECKS = 10;
+const MUGGING_SERVICE_ID = 'slink.mug-watch';
+const MUGGING_DEFAULT_CALLS_PER_MINUTE = 20;
+const MAX_MUGGING_REQUESTS = 40;
 const textEncoder = new TextEncoder();
 
 
@@ -99,6 +102,17 @@ const worker = {
             return handleAdminScopes(request, env);
         }
 
+        const donationLimitMatch = url.pathname.match(
+            /^\/api\/admin\/donations\/(\d+)\/limit$/
+        );
+        if (donationLimitMatch) {
+            return handleAdminDonationLimit(
+                request,
+                env,
+                positiveInteger(donationLimitMatch[1])
+            );
+        }
+
         const permissionMatch = url.pathname.match(
             /^\/api\/admin\/users\/(\d+)\/permissions$/
         );
@@ -132,6 +146,13 @@ const worker = {
             request.method === 'POST'
         ) {
             return handleVirtualCollection(request, env);
+        }
+
+        if (
+            url.pathname === '/api/internal/mugging/requests' &&
+            request.method === 'POST'
+        ) {
+            return handleMuggingRequests(request, env);
         }
 
         if (
@@ -576,6 +597,55 @@ async function handleAdminScopes(request, env) {
 }
 
 
+async function handleAdminDonationLimit(request, env, userId) {
+    if (!userId) {
+        return jsonResponse({ ok: false, error: 'A valid donor user ID is required.' }, 400);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({ ok: false, error: 'admin.* permission is required.' }, 403);
+    }
+    try {
+        requireDatabase(env);
+        if (request.method === 'GET') {
+            const donation = await env.PERMISSIONS_DB.prepare(`
+                SELECT user_id, status, service_scope, calls_per_minute,
+                       rate_window_started_at, rate_window_calls, last_used_at
+                FROM donated_api_keys
+                WHERE user_id = ?1
+            `).bind(userId).first();
+            if (!donation) return jsonResponse({ ok:false, error:'Donation not found.' }, 404);
+            return jsonResponse({ ok:true, donation:publicDonation(donation) });
+        }
+        if (request.method !== 'POST') {
+            return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+        }
+        const body = await readJsonBody(request);
+        const callsPerMinute = Number(body?.calls_per_minute);
+        if (!Number.isInteger(callsPerMinute) || callsPerMinute < 1 || callsPerMinute > 60) {
+            throw new RequestValidationError('calls_per_minute must be an integer from 1 through 60.');
+        }
+        const result = await env.PERMISSIONS_DB.prepare(`
+            UPDATE donated_api_keys
+            SET calls_per_minute = ?2,
+                updated_at = ?3
+            WHERE user_id = ?1
+        `).bind(userId, callsPerMinute, Date.now()).run();
+        if (!Number(result.meta?.changes)) {
+            return jsonResponse({ ok:false, error:'Donation not found.' }, 404);
+        }
+        return jsonResponse({
+            ok:true,
+            user_id:userId,
+            service_scope:MUGGING_SERVICE_ID,
+            calls_per_minute:callsPerMinute
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
 async function adminPermissionsResponse(
     env,
     userId,
@@ -841,7 +911,9 @@ async function handleDonation(request, env, ctx) {
             status: 'active',
             terms_version: TERMS_VERSION,
             donated_at: new Date(acceptedAt).toISOString(),
-            management_token: managementToken
+            management_token: managementToken,
+            service_scope: MUGGING_SERVICE_ID,
+            calls_per_minute: MUGGING_DEFAULT_CALLS_PER_MINUTE
         });
     } catch (error) {
         return requestErrorResponse(error);
@@ -1016,7 +1088,7 @@ async function handleVirtualCollection(request, env) {
             });
         }
 
-        const donor = await nextDonatedKey(env);
+        const donor = await nextDonatedKey(env, serviceId);
         if (!donor) {
             await recordServiceState(
                 env,
@@ -1126,6 +1198,258 @@ async function handleVirtualCollection(request, env) {
     } catch (error) {
         return requestErrorResponse(error);
     }
+}
+
+
+async function handleMuggingRequests(request, env) {
+    try {
+        if (!await isServiceRequest(request, env)) {
+            return serviceAuthenticationRequired();
+        }
+        requireDonationConfiguration(env);
+        const body = await readJsonBody(request);
+        const requests = normalizeMuggingRequests(body?.requests);
+        if (!requests.length) {
+            throw new RequestValidationError('At least one mugging request is required.');
+        }
+
+        const now = Date.now();
+        const windowStartedAt = Math.floor(now / 60_000) * 60_000;
+        const result = await env.PERMISSIONS_DB.prepare(`
+            SELECT user_id, encrypted_key, encryption_iv, calls_per_minute,
+                   rate_window_started_at, rate_window_calls, last_used_at
+            FROM donated_api_keys
+            WHERE status = 'active'
+              AND service_scope = ?1
+              AND encrypted_key IS NOT NULL
+              AND encryption_iv IS NOT NULL
+            ORDER BY COALESCE(last_used_at, 0) ASC, user_id ASC
+        `).bind(MUGGING_SERVICE_ID).all();
+        const donors = (result.results || []).map(row => {
+            const sameWindow = Number(row.rate_window_started_at) === windowStartedAt;
+            const limit = boundedInteger(
+                row.calls_per_minute,
+                MUGGING_DEFAULT_CALLS_PER_MINUTE,
+                1,
+                60
+            );
+            const used = sameWindow ? Math.max(0, Number(row.rate_window_calls) || 0) : 0;
+            return { ...row, limit, used, assigned:[], apiKey:null };
+        });
+
+        for (const item of requests) {
+            const donor = donors
+                .filter(candidate => candidate.used + candidate.assigned.length < candidate.limit)
+                .sort((left, right) =>
+                    (left.used + left.assigned.length) / left.limit -
+                    (right.used + right.assigned.length) / right.limit ||
+                    Number(left.user_id) - Number(right.user_id)
+                )[0];
+            if (!donor) break;
+            donor.assigned.push(item);
+        }
+
+        const reservations = donors.filter(donor => donor.assigned.length);
+        for (const donor of reservations) {
+            const reserved = await env.PERMISSIONS_DB.prepare(`
+                UPDATE donated_api_keys
+                SET rate_window_started_at = ?2,
+                    rate_window_calls = CASE
+                        WHEN rate_window_started_at = ?2
+                            THEN rate_window_calls + ?3
+                        ELSE ?3
+                    END,
+                    updated_at = ?4
+                WHERE user_id = ?1
+                  AND status = 'active'
+                  AND service_scope = ?5
+                  AND (
+                    CASE
+                        WHEN rate_window_started_at = ?2 THEN rate_window_calls
+                        ELSE 0
+                    END
+                  ) + ?3 <= calls_per_minute
+            `).bind(
+                donor.user_id,
+                windowStartedAt,
+                donor.assigned.length,
+                now,
+                MUGGING_SERVICE_ID
+            ).run();
+            if (!Number(reserved.meta?.changes)) donor.assigned = [];
+        }
+
+        const assignedIds = new Set(
+            reservations.flatMap(donor => donor.assigned.map(item => item.request_id))
+        );
+        const assignedCount = assignedIds.size;
+        const unassigned = requests.filter(item => !assignedIds.has(item.request_id)).map(item => ({
+            request_id:item.request_id,
+            kind:item.kind,
+            ok:false,
+            error:'No donated mugging-key capacity remains in the current minute.'
+        }));
+        const results = [];
+        const aggregateLimit = reservations.reduce((sum, donor) => sum + donor.limit, 0);
+        const slotMs = aggregateLimit ? Math.ceil(60_000 / aggregateLimit) : 0;
+        let callIndex = 0;
+        const startedAt = Date.now();
+
+        const interleaved = [];
+        const maxAssigned = Math.max(0, ...reservations.map(donor => donor.assigned.length));
+        for (let index = 0; index < maxAssigned; index++) {
+            for (const donor of reservations) {
+                if (donor.assigned[index]) interleaved.push({ donor, item:donor.assigned[index] });
+            }
+        }
+
+        for (const { donor, item } of interleaved) {
+            if (donor.invalid) {
+                results.push({
+                    request_id:item.request_id,
+                    kind:item.kind,
+                    ok:false,
+                    error:'The assigned donated key became invalid during this batch.'
+                });
+                continue;
+            }
+            if (slotMs && callIndex > 0) {
+                const dueAt = startedAt + callIndex * slotMs;
+                if (dueAt > Date.now()) await delay(dueAt - Date.now());
+            }
+            callIndex++;
+            try {
+                donor.apiKey ||= await decryptApiKey(
+                    donor.encrypted_key,
+                    donor.encryption_iv,
+                    donor.user_id,
+                    env.API_KEY_ENCRYPTION_KEY
+                );
+                const collected = await performMuggingRequest(item, donor.apiKey);
+                results.push({
+                    request_id:item.request_id,
+                    kind:item.kind,
+                    ok:true,
+                    body:collected
+                });
+            } catch (error) {
+                const invalid = error?.code === 'TORN_KEY_INVALID';
+                results.push({
+                    request_id:item.request_id,
+                    kind:item.kind,
+                    ok:false,
+                    error:errorMessage(error)
+                });
+                await recordMuggingDonorOutcome(env, donor, now, error, invalid);
+                if (invalid) donor.invalid = true;
+            }
+        }
+
+        for (const donor of reservations) {
+            if (donor.assigned.length && !results.some(row => !row.ok && row.request_id && donor.assigned.some(item => item.request_id === row.request_id))) {
+                await recordMuggingDonorOutcome(env, donor, now, null, false);
+            }
+        }
+        return jsonResponse({
+            ok:true,
+            service_id:MUGGING_SERVICE_ID,
+            key_count:donors.length,
+            configured_capacity:donors.reduce((sum, donor) => sum + donor.limit, 0),
+            calls_reserved:assignedCount,
+            available_capacity:donors.reduce(
+                (sum, donor) => sum + Math.max(0, donor.limit - donor.used - donor.assigned.length),
+                0
+            ),
+            results:[...results, ...unassigned]
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+function normalizeMuggingRequests(value) {
+    const requests = [];
+    const seen = new Set();
+    for (const row of Array.isArray(value) ? value : []) {
+        const kind = String(row?.kind || '').trim();
+        const requestId = String(row?.request_id || '').trim().slice(0, 120);
+        if (!requestId || seen.has(requestId)) continue;
+        if (!['company.types', 'company.snapshot', 'company.employees'].includes(kind)) {
+            throw new RequestValidationError(`Unsupported mugging request kind: ${kind || '(empty)'}.`);
+        }
+        const companyId = kind === 'company.employees'
+            ? positiveInteger(row?.company_id)
+            : null;
+        if (kind === 'company.employees' && !companyId) {
+            throw new RequestValidationError('company.employees requires a valid company_id.');
+        }
+        seen.add(requestId);
+        requests.push({ request_id:requestId, kind, company_id:companyId });
+        if (requests.length >= MAX_MUGGING_REQUESTS) break;
+    }
+    return requests;
+}
+
+
+async function performMuggingRequest(item, apiKey) {
+    let path;
+    let accept = 'application/json';
+    if (item.kind === 'company.types') path = '/v2/torn/companies';
+    else if (item.kind === 'company.snapshot') {
+        path = '/v2/company/snapshot';
+        accept = 'text/csv';
+    } else if (item.kind === 'company.employees') {
+        path = `/v2/company/${encodeURIComponent(item.company_id)}/employees`;
+    } else {
+        throw new RequestValidationError('Unsupported mugging request kind.');
+    }
+    const response = await fetch(`https://api.torn.com${path}`, {
+        method:'GET',
+        headers:{
+            Authorization:`ApiKey ${apiKey}`,
+            Accept:accept,
+            'User-Agent':'SLINK-Contribution-Service'
+        }
+    });
+    if (item.kind === 'company.snapshot') {
+        if (!response.ok) {
+            const error = new Error(`Torn company snapshot failed with HTTP ${response.status}.`);
+            if (response.status === 401 || response.status === 403) error.code = 'TORN_KEY_INVALID';
+            throw error;
+        }
+        return response.text();
+    }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.error) {
+        const error = new Error(data?.error?.error || 'Torn rejected the mugging data request.');
+        if (response.status === 401 || response.status === 403 || Number(data?.error?.code) === 2) {
+            error.code = 'TORN_KEY_INVALID';
+        }
+        throw error;
+    }
+    return data;
+}
+
+
+async function recordMuggingDonorOutcome(env, donor, now, error, invalid) {
+    await env.PERMISSIONS_DB.prepare(`
+        UPDATE donated_api_keys
+        SET status = CASE WHEN ?3 = 1 THEN 'invalid' ELSE status END,
+            encrypted_key = CASE WHEN ?3 = 1 THEN NULL ELSE encrypted_key END,
+            encryption_iv = CASE WHEN ?3 = 1 THEN NULL ELSE encryption_iv END,
+            last_used_at = ?2,
+            last_validated_at = CASE WHEN ?3 = 0 AND ?4 = '' THEN ?2 ELSE last_validated_at END,
+            failure_count = CASE WHEN ?4 = '' THEN 0 ELSE failure_count + 1 END,
+            last_error = CASE WHEN ?4 = '' THEN NULL ELSE ?4 END,
+            updated_at = ?2
+        WHERE user_id = ?1
+    `).bind(
+        donor.user_id,
+        now,
+        invalid ? 1 : 0,
+        error ? errorMessage(error).slice(0, 300) : ''
+    ).run();
 }
 
 
@@ -1299,17 +1623,19 @@ async function recordServiceState(
 }
 
 
-async function nextDonatedKey(env) {
+async function nextDonatedKey(env, serviceScope = 'slink.level') {
     return env.PERMISSIONS_DB
         .prepare(`
             SELECT *
             FROM donated_api_keys
             WHERE status = 'active'
+              AND service_scope = ?1
               AND encrypted_key IS NOT NULL
               AND encryption_iv IS NOT NULL
             ORDER BY COALESCE(last_used_at, 0) ASC, failure_count ASC, user_id ASC
             LIMIT 1
         `)
+        .bind(serviceScope)
         .first();
 }
 
@@ -1417,7 +1743,7 @@ async function executeContributionJob(env, job, now) {
         .run();
     if (!Number(claim.meta?.changes)) return 'skipped';
 
-    const donor = await nextDonatedKey(env);
+    const donor = await nextDonatedKey(env, 'slink.level');
 
     if (!donor) {
         const attempts = Number(job.attempts) + 1;
@@ -1590,7 +1916,9 @@ async function authenticatedDonation(request, env) {
             SELECT
                 user_id, access_type, status, terms_version,
                 terms_accepted_at, created_at, updated_at,
-                last_validated_at, last_used_at, failure_count, last_error
+                last_validated_at, last_used_at, failure_count, last_error,
+                service_scope, calls_per_minute,
+                rate_window_started_at, rate_window_calls
             FROM donated_api_keys
             WHERE management_token_sha256 = ?1
         `)
@@ -1612,7 +1940,11 @@ function publicDonation(row) {
         last_validated_at: Number(row.last_validated_at) || 0,
         last_used_at: Number(row.last_used_at) || 0,
         failure_count: Number(row.failure_count) || 0,
-        last_error: row.last_error || ''
+        last_error: row.last_error || '',
+        service_scope: row.service_scope || MUGGING_SERVICE_ID,
+        calls_per_minute: Number(row.calls_per_minute) || MUGGING_DEFAULT_CALLS_PER_MINUTE,
+        rate_window_started_at: Number(row.rate_window_started_at) || 0,
+        rate_window_calls: Number(row.rate_window_calls) || 0
     };
 }
 
@@ -1758,6 +2090,18 @@ function requireDonationConfiguration(env) {
 function positiveInteger(value) {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+
+function boundedInteger(value, fallback, minimum, maximum) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(maximum, Math.max(minimum, Math.trunc(parsed)));
+}
+
+
+function delay(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, milliseconds)));
 }
 
 
