@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.1-mugging-capacity
+ * Release: 0.4.2-additive-permissions
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.1-mugging-capacity';
+const WORKER_VERSION = '0.4.2-additive-permissions';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -702,6 +702,15 @@ async function adminPermissionsResponse(
                 Number(inherited.starts_at) <= now &&
                 (inherited.expires_at === null || Number(inherited.expires_at) > now)
             );
+            const directStatus = !direct
+                ? 'not_granted'
+                : direct.status === 'revoked'
+                    ? 'revoked'
+                    : Number(direct.starts_at) > now
+                        ? 'scheduled'
+                        : direct.expires_at !== null && Number(direct.expires_at) <= now
+                            ? 'expired'
+                            : 'active';
             return {
                 ...definition,
                 active: directActive || inheritedActive,
@@ -713,7 +722,7 @@ async function adminPermissionsResponse(
                 expires_at: direct?.expires_at === null || direct?.expires_at === undefined
                     ? null
                     : Number(direct.expires_at),
-                status: direct?.status || 'not_granted',
+                status: directStatus,
                 note: direct?.note || ''
             };
         })
@@ -721,8 +730,12 @@ async function adminPermissionsResponse(
 }
 
 
-async function updateAdminPermissions(env, session, userId, request) {
+async function updateAdminPermissions(env, session, userId, request, factionId = 0) {
     const body = await readJsonBody(request);
+    const operation = String(body?.operation || 'grant').trim().toLowerCase();
+    if (!['grant', 'revoke'].includes(operation)) {
+        throw new RequestValidationError('operation must be grant or revoke.');
+    }
     const selected = new Set(
         Array.isArray(body?.scopes) ? body.scopes.map(String) : []
     );
@@ -733,36 +746,62 @@ async function updateAdminPermissions(env, session, userId, request) {
             'One or more requested scopes cannot be assigned.'
         );
     }
-    const hours = Number(body?.hours);
-    if (!Number.isFinite(hours) || hours < 1 || hours > 8760) {
+    if (!selected.size) {
         throw new RequestValidationError(
-            'Grant duration must be between 1 and 8760 hours.'
+            operation === 'grant'
+                ? 'Select at least one permission to add.'
+                : 'Select a permission to revoke.'
         );
     }
     const now = Date.now();
-    const expiresAt = now + Math.round(hours * 60 * 60 * 1000);
+    const permanent = body?.permanent === true;
+    const hours = Number(body?.hours);
+    if (operation === 'grant' && !permanent &&
+        (!Number.isFinite(hours) || hours < 1 || hours > 8760)) {
+        throw new RequestValidationError(
+            'Grant duration must be between 1 and 8760 hours, or permanent.'
+        );
+    }
+    const expiresAt = operation === 'grant' && !permanent
+        ? now + Math.round(hours * 60 * 60 * 1000)
+        : null;
     const note = String(
-        body?.note || 'Assigned from the SLINK administrator dashboard'
+        body?.note || (operation === 'grant'
+            ? 'Assigned from the SLINK administrator dashboard'
+            : 'Revoked from the SLINK administrator dashboard')
     ).trim().slice(0, 500);
     const statements = [];
-    for (const definition of availableScopes) {
-        if (selected.has(definition.scope)) {
+    for (const scope of selected) {
+        if (operation === 'grant') {
             statements.push(env.PERMISSIONS_DB.prepare(`
                 INSERT INTO user_scope_grants(
                     user_id, scope, source, status, starts_at, expires_at,
                     granted_by, external_reference, note, created_at, updated_at
                 ) VALUES (?, ?, 'manual_admin', 'active', ?, ?, ?, NULL, ?, ?, ?)
                 ON CONFLICT(user_id, scope) DO UPDATE SET
-                    source = 'manual_admin',
+                    source = CASE
+                        WHEN user_scope_grants.status = 'active'
+                        THEN user_scope_grants.source
+                        ELSE excluded.source
+                    END,
                     status = 'active',
-                    starts_at = excluded.starts_at,
-                    expires_at = excluded.expires_at,
+                    starts_at = CASE
+                        WHEN user_scope_grants.status = 'active'
+                        THEN MIN(user_scope_grants.starts_at, excluded.starts_at)
+                        ELSE excluded.starts_at
+                    END,
+                    expires_at = CASE
+                        WHEN user_scope_grants.status = 'active' AND user_scope_grants.expires_at IS NULL THEN NULL
+                        WHEN excluded.expires_at IS NULL THEN NULL
+                        WHEN user_scope_grants.status = 'active' AND user_scope_grants.expires_at > excluded.expires_at THEN user_scope_grants.expires_at
+                        ELSE excluded.expires_at
+                    END,
                     granted_by = excluded.granted_by,
                     note = excluded.note,
                     updated_at = excluded.updated_at
             `).bind(
                 userId,
-                definition.scope,
+                scope,
                 now,
                 expiresAt,
                 Number(session.user_id),
@@ -780,12 +819,12 @@ async function updateAdminPermissions(env, session, userId, request) {
                 note || 'Revoked from the SLINK administrator dashboard',
                 now,
                 userId,
-                definition.scope
+                scope
             ));
         }
     }
     await env.PERMISSIONS_DB.batch(statements);
-    return adminPermissionsResponse(env, userId, availableScopes);
+    return adminPermissionsResponse(env, userId, availableScopes, factionId);
 }
 
 
@@ -798,15 +837,15 @@ async function handleAdminPermissions(request, env, userId, url) {
         return jsonResponse({ ok: false, error: 'admin.* permission is required.' }, 403);
     }
     try {
+        const requestedFactionId = Number(url.searchParams.get('faction_id') || 0);
+        const factionId = Number.isInteger(requestedFactionId) && requestedFactionId > 0
+            ? requestedFactionId
+            : 0;
         if (request.method === 'GET') {
-            const requestedFactionId = Number(url.searchParams.get('faction_id') || 0);
-            const factionId = Number.isInteger(requestedFactionId) && requestedFactionId > 0
-                ? requestedFactionId
-                : 0;
             return adminPermissionsResponse(env, userId, null, factionId);
         }
         if (request.method === 'POST') {
-            return updateAdminPermissions(env, session, userId, request);
+            return updateAdminPermissions(env, session, userId, request, factionId);
         }
         return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
     } catch (error) {

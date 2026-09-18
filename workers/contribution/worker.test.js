@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.1-mugging-capacity',
+            version: '0.4.2-additive-permissions',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -154,7 +154,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest(
                 'https://contribution.example/api/admin/users/4468681/permissions',
                 {
-                    scopes: ['slink.level', 'slink.adhd.alerts'],
+                    operation: 'grant',
+                    scopes: ['slink.level', 'slink.theme.underglow'],
                     hours: 24,
                     note: 'Permission gateway test'
                 },
@@ -163,6 +164,25 @@ describe('SLINK Contribution Service', () => {
             env
         );
         assert.equal(updated.status, 200);
+        const originalLevelExpiry = env.PERMISSIONS_DB.sqlite.prepare(`
+            SELECT expires_at FROM user_scope_grants
+            WHERE user_id = 4468681 AND scope = 'slink.level'
+        `).get().expires_at;
+
+        const additive = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/admin/users/4468681/permissions',
+                {
+                    operation: 'grant',
+                    scopes: ['slink.adhd.alerts'],
+                    hours: 168,
+                    note: 'Add Market-related access without replacing purchases'
+                },
+                { Authorization: `Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(additive.status, 200);
         assert.equal(
             env.PERMISSIONS_DB.sqlite.prepare(`
                 SELECT status FROM user_scope_grants
@@ -170,6 +190,60 @@ describe('SLINK Contribution Service', () => {
             `).get().status,
             'active'
         );
+        assert.equal(
+            env.PERMISSIONS_DB.sqlite.prepare(`
+                SELECT expires_at FROM user_scope_grants
+                WHERE user_id = 4468681 AND scope = 'slink.level'
+            `).get().expires_at,
+            originalLevelExpiry,
+            'adding an unrelated permission must not replace or extend an existing grant'
+        );
+
+        const permanent = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/admin/users/4468681/permissions',
+                {
+                    operation: 'grant',
+                    scopes: ['slink.theme.underglow'],
+                    permanent: true,
+                    note: 'Purchased theme'
+                },
+                { Authorization: `Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(permanent.status, 200);
+        assert.equal(
+            env.PERMISSIONS_DB.sqlite.prepare(`
+                SELECT expires_at FROM user_scope_grants
+                WHERE user_id = 4468681 AND scope = 'slink.theme.underglow'
+            `).get().expires_at,
+            null,
+            'permanent grants must use a null expiration'
+        );
+
+        const revoked = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/admin/users/4468681/permissions',
+                {
+                    operation: 'revoke',
+                    scopes: ['slink.level'],
+                    note: 'Individual revoke test'
+                },
+                { Authorization: `Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(revoked.status, 200);
+        const finalRows = env.PERMISSIONS_DB.sqlite.prepare(`
+            SELECT scope, status, expires_at FROM user_scope_grants
+            WHERE user_id = 4468681
+        `).all();
+        const finalByScope = new Map(finalRows.map(row => [row.scope, row]));
+        assert.equal(finalByScope.get('slink.level').status, 'revoked');
+        assert.equal(finalByScope.get('slink.adhd.alerts').status, 'active');
+        assert.equal(finalByScope.get('slink.theme.underglow').status, 'active');
+        assert.equal(finalByScope.get('slink.theme.underglow').expires_at, null);
     });
 
 

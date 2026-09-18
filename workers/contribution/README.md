@@ -78,7 +78,10 @@ invalidate existing donations.
 - `GET /api/permissions/terms` — shared SLINK API/data terms.
 - `POST /api/permissions/auth` — verify identity and return signed feature scopes.
 - `GET /api/admin/scopes` — list grantable scopes for the sole administrator.
-- `GET|POST /api/admin/users/:id/permissions` — inspect or update timed grants.
+- `GET /api/admin/users/:id/permissions` — inspect direct and inherited grants.
+- `POST /api/admin/users/:id/permissions` — add/extend only the selected grants,
+  assign permanent grants, or explicitly revoke selected direct grants. Unselected
+  grants are never modified.
 - `POST /api/donations` — validate and encrypt a newly accepted donation.
 - `GET /api/donations` — donor status using the donation management token.
 - `DELETE /api/donations` — revoke and erase encrypted key material.
