@@ -10,7 +10,9 @@ const CATALOG_REFRESH_MS = 24 * 60 * 60 * 1000;
 const RUN_LOCK_MS = 55 * 1000;
 const MUG_COOLDOWN_MS = 11 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const FAIR_FIGHT_BATCH_SIZE = 100;
+const FAIR_FIGHT_BATCH_SIZE = 25;
+const FAIR_FIGHT_REQUEST_INTERVAL_MS = 10 * 60 * 1000;
+const FAIR_FIGHT_REFRESH_MS = 7 * DAY_MS;
 const MAX_REPORTS_PER_REQUEST = 100;
 
 const COMPANY_RULES = Object.freeze([
@@ -34,6 +36,9 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
     if (typeof executePublicRequests !== 'function') {
         return { active: false, reason: 'contribution_broker_not_configured' };
     }
+    const executeFairFight = typeof dependencies.fetchFairFight === 'function'
+        ? dependencies.fetchFairFight
+        : fetchFairFight;
 
     const now = Number(options.now) || Date.now();
     const lock = await claimMonitorRun(env, now);
@@ -128,14 +133,12 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
         }
     }
 
-    const initialFfIds = [];
     const commit = await mutateState(env.MUGGING_BUCKET, current => {
         if (catalogUpdate) applyCatalog(current, catalogUpdate, now);
         const events = [];
         for (const result of scanResults) {
             const merged = mergeCompanyScan(current, result, now);
             events.push(...merged.events);
-            initialFfIds.push(...merged.newTargetIds);
         }
         if (current.company_ids.length) {
             current.company_cursor = cursor % current.company_ids.length;
@@ -178,22 +181,58 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
     state = stateRecord.state;
 
     let fairFightChecked = 0;
-    if (env.FFSCOUTER_API_KEY) {
-        const uniqueInitialIds = [...new Set(initialFfIds)]
-            .filter(id => !state.targets[String(id)]?.ff_initial_attempted_at)
-            .slice(0, FAIR_FIGHT_BATCH_SIZE);
-        if (uniqueInitialIds.length) {
-            try {
-                const rows = await fetchFairFight(uniqueInitialIds, env.FFSCOUTER_API_KEY);
-                await mutateState(env.MUGGING_BUCKET, current => {
-                    applyFairFightRows(current, uniqueInitialIds, rows, now);
-                    current.updated_at = now;
-                    return {};
-                });
-                fairFightChecked = uniqueInitialIds.length;
+    let fairFightAttempted = 0;
+    if (
+        env.FFSCOUTER_API_KEY &&
+        now - Number(state.fair_fight_last_request_at || 0) >= FAIR_FIGHT_REQUEST_INTERVAL_MS
+    ) {
+        const candidates = selectFairFightCandidates(state, now, FAIR_FIGHT_BATCH_SIZE);
+        if (candidates.length) {
+            const reservation = await mutateState(env.MUGGING_BUCKET, current => {
+                if (now - Number(current.fair_fight_last_request_at || 0) < FAIR_FIGHT_REQUEST_INTERVAL_MS) {
+                    return { ids:[] };
+                }
+                const ids = selectFairFightCandidates(current, now, FAIR_FIGHT_BATCH_SIZE);
+                if (!ids.length) return { ids };
+                current.fair_fight_last_request_at = now;
+                for (const id of ids) {
+                    const target = current.targets[String(id)];
+                    target.ff_last_attempted_at = now;
+                    if (!target.ff_initial_attempted_at) target.ff_initial_attempted_at = now;
+                }
+                current.updated_at = now;
+                return { ids };
+            });
+            stateRecord = reservation.record;
+            state = stateRecord.state;
+            const ids = reservation.result.ids || [];
+            if (ids.length) {
+                fairFightAttempted = ids.length;
                 callsMade++;
-            } catch (error) {
-                console.error(JSON.stringify({ event:'slink_mugging_ffscouter_failed', error:errorMessage(error) }));
+                try {
+                    const rows = await executeFairFight(ids, env.FFSCOUTER_API_KEY);
+                    const updated = await mutateState(env.MUGGING_BUCKET, current => {
+                        applyFairFightRows(current, ids, rows, now);
+                        current.fair_fight_last_success_at = now;
+                        current.fair_fight_last_error = '';
+                        current.updated_at = now;
+                        return {};
+                    });
+                    stateRecord = updated.record;
+                    state = stateRecord.state;
+                    fairFightChecked = ids.length;
+                } catch (error) {
+                    const message = errorMessage(error);
+                    const updated = await mutateState(env.MUGGING_BUCKET, current => {
+                        current.fair_fight_last_error_at = now;
+                        current.fair_fight_last_error = message;
+                        current.updated_at = now;
+                        return {};
+                    });
+                    stateRecord = updated.record;
+                    state = stateRecord.state;
+                    console.error(JSON.stringify({ event:'slink_mugging_ffscouter_failed', error:message }));
+                }
             }
         }
     }
@@ -211,7 +250,11 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
         companies_total: state.company_ids.length,
         targets_total: Object.keys(state.targets).length,
         mug_events: events.length,
-        fair_fight_initial_checks: fairFightChecked,
+        fair_fight_attempted: fairFightAttempted,
+        fair_fight_checked: fairFightChecked,
+        fair_fight_next_request_at: Number(state.fair_fight_last_request_at)
+            ? Number(state.fair_fight_last_request_at) + FAIR_FIGHT_REQUEST_INTERVAL_MS
+            : 0,
         estimated_cycle_minutes: state.summary?.estimated_cycle_minutes || 0,
         target_cycle_minutes: 15,
         capacity_meets_target: state.summary?.capacity_meets_target === true
@@ -272,6 +315,18 @@ function statusFromState(state) {
         last_cycle_completed_at: Number(state.last_cycle_completed_at) || 0,
         updated_at: Number(state.updated_at) || 0,
         last_run: state.last_run || null,
+        fair_fight: {
+            batch_size:FAIR_FIGHT_BATCH_SIZE,
+            request_interval_ms:FAIR_FIGHT_REQUEST_INTERVAL_MS,
+            target_refresh_ms:FAIR_FIGHT_REFRESH_MS,
+            last_request_at:Number(state.fair_fight_last_request_at) || 0,
+            next_request_at:Number(state.fair_fight_last_request_at)
+                ? Number(state.fair_fight_last_request_at) + FAIR_FIGHT_REQUEST_INTERVAL_MS
+                : 0,
+            last_success_at:Number(state.fair_fight_last_success_at) || 0,
+            last_error_at:Number(state.fair_fight_last_error_at) || 0,
+            last_error:String(state.fair_fight_last_error || '')
+        },
         summary: state.summary || null
     };
 }
@@ -525,19 +580,37 @@ async function fetchFairFight(ids, apiKey) {
 }
 
 
+function selectFairFightCandidates(state, now, limit = FAIR_FIGHT_BATCH_SIZE) {
+    return Object.values(state.targets || {})
+        .map(target => ({
+            id:positiveInteger(target?.id),
+            refreshedAt:Math.max(
+                Number(target?.ff_last_attempted_at) || 0,
+                Number(target?.ff_initial_attempted_at) || 0,
+                Number(target?.fair_fight_checked_at) || 0,
+                Number(target?.battle_stats_checked_at) || 0
+            ),
+            firstSeenAt:Number(target?.first_seen_at) || 0
+        }))
+        .filter(target => target.id && now - target.refreshedAt >= FAIR_FIGHT_REFRESH_MS)
+        .sort((left, right) => left.refreshedAt - right.refreshedAt || left.firstSeenAt - right.firstSeenAt || left.id - right.id)
+        .slice(0, Math.max(0, Number(limit) || 0))
+        .map(target => target.id);
+}
+
+
 function applyFairFightRows(state, requestedIds, rows, now) {
     const byId = new Map(rows.map(row => [positiveInteger(row?.player_id ?? row?.id ?? row?.user_id), row]));
     for (const id of requestedIds) {
         const target = state.targets[String(id)];
-        if (!target || target.ff_initial_attempted_at) continue;
+        if (!target) continue;
         const row = byId.get(id);
-        target.ff_initial_attempted_at = now;
         if (!row) continue;
         const estimate = finiteNumber(row?.bs_estimate ?? row?.battle_stats_estimate ?? row?.total_stats);
         const fairFight = finiteNumber(row?.fair_fight ?? row?.fairFight ?? row?.ff);
-        if (estimate !== null && !target.battle_stats_estimate) {
+        if (estimate !== null && now >= Number(target.battle_stats_checked_at || 0)) {
             target.battle_stats_estimate = estimate;
-            target.battle_stats_source = 'fair_fight_initial';
+            target.battle_stats_source = 'fair_fight';
             target.battle_stats_checked_at = now;
         }
         if (fairFight !== null) {
@@ -751,5 +824,6 @@ export const testing = Object.freeze({
     normalizeCompanyEmployees,
     parseCsv,
     priorityMultiplier,
+    selectFairFightCandidates,
     selectMuggingCompanies
 });

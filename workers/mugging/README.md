@@ -33,8 +33,12 @@ unavailable until the earlier of detected mug time + 11 hours or the next
 18:05 TCT payday.
 
 Future client reports can add mug values and battle-stat estimates. Repeated
-sub-$300,000 reports lower the target priority. Fair Fight is attempted only
-when a target is first populated and only when `FFSCOUTER_API_KEY` is set.
+sub-$300,000 reports lower the target priority. When `FFSCOUTER_API_KEY` is
+set, Fair Fight collection is limited to 25 targets in one request every 10
+minutes. A target is not eligible again for seven days, and a recent client
+battle-stat observation also satisfies that seven-day freshness window.
+Failed requests retain the same per-target cooldown so an upstream rate-limit
+cannot create an immediate retry loop.
 
 ## Cloudflare setup
 

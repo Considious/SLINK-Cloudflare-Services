@@ -4,7 +4,7 @@ import {
     runMuggingMonitor
 } from './monitor-core.js';
 
-const WORKER_VERSION = '0.2.0-capacity-expanded-catalog';
+const WORKER_VERSION = '0.2.1-fair-fight-throttle';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();

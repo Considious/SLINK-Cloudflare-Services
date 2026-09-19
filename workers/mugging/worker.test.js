@@ -141,6 +141,50 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(testing.mergeCompanyScan(state, result, now + 60_000).events.length, 0);
     });
 
+    it('limits Fair Fight candidates to targets not attempted or observed in the last week', () => {
+        const now = Date.UTC(2026, 8, 19, 12, 0, 0);
+        const day = 24 * 60 * 60 * 1000;
+        const state = {
+            targets:{
+                '1':{ id:1, first_seen_at:now - 20 * day },
+                '2':{ id:2, first_seen_at:now - 20 * day, ff_last_attempted_at:now - 6 * day },
+                '3':{ id:3, first_seen_at:now - 20 * day, ff_last_attempted_at:now - 8 * day },
+                '4':{ id:4, first_seen_at:now - 20 * day, battle_stats_checked_at:now - day }
+            }
+        };
+        assert.deepEqual(testing.selectFairFightCandidates(state, now, 25), [1, 3]);
+        assert.deepEqual(testing.selectFairFightCandidates(state, now, 1), [1]);
+    });
+
+    it('does not retry a failed Fair Fight request on the next scheduled run', async () => {
+        const env = createEnv();
+        env.FFSCOUTER_API_KEY = 'test-key';
+        const now = Date.UTC(2026, 8, 19, 13, 0, 0);
+        let fairFightRequests = 0;
+        const executePublicRequests = async requests => ({
+            key_count:1,
+            results:requests.map(request => {
+                if (request.kind === 'company.types') return { ...request, ok:true, body:{ companies:[{ id:1, name:'Oil Rig' }] } };
+                if (request.kind === 'company.snapshot') return { ...request, ok:true, body:'id,name,type,rating,employees_hired,employees_capacity\n77,Test Rig,1,9,1,10\n' };
+                return { ...request, ok:true, body:{ company_employees:[{ id:123, name:'Target', status:{ state:'Okay', description:'Okay', until:0 } }] } };
+            })
+        });
+        const fetchFairFight = async () => {
+            fairFightRequests++;
+            throw new Error('Too many requests');
+        };
+
+        const first = await runMuggingMonitor(env, { executePublicRequests, fetchFairFight }, { now, maxCalls:10 });
+        const second = await runMuggingMonitor(env, { executePublicRequests, fetchFairFight }, { now:now + 60_000, maxCalls:10 });
+        const status = JSON.parse(env.MUGGING_BUCKET.values.get('mugging/status/v1.json').body);
+        assert.equal(first.fair_fight_attempted, 1);
+        assert.equal(first.fair_fight_checked, 0);
+        assert.equal(second.fair_fight_attempted, 0);
+        assert.equal(fairFightRequests, 1);
+        assert.equal(status.fair_fight.last_error, 'Too many requests');
+        assert.equal(status.fair_fight.next_request_at, now + 10 * 60_000);
+    });
+
     it('keeps the health route read-only and authenticates manual runs', async () => {
         const env = createEnv();
         const health = await worker.fetch(new Request('https://mugging.example/api/health'), env);
