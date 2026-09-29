@@ -817,13 +817,23 @@ function errorMessage(error) {
 
 
 export const testing = Object.freeze({
+    applyBattleStats,
+    applyCatalog,
     applyFairFightRows,
     earliestFreeAt,
+    ensureTarget,
+    fetchFairFight,
     ingestMuggingReports,
+    isMugHospital,
     mergeCompanyScan,
+    mugSignature,
+    normalizeReports,
     normalizeCompanyEmployees,
     parseCsv,
     priorityMultiplier,
+    recordMug,
+    recordMugValue,
     selectFairFightCandidates,
     selectMuggingCompanies
 });
+

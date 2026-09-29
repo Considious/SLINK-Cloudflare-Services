@@ -6,8 +6,9 @@ not share the Leveling Worker database, R2 bucket, scheduler, or target model.
 ## Storage boundary
 
 - `MUGGING_BUCKET` owns the company catalog, compact current target state, and
-  append-only event batches. Unchanged `Okay` checks do not create history
-  objects.
+  append-only event batches. Target state is split across 15 automatically
+  managed objects in the existing bucket; these are logical shards, not
+  separate buckets. Unchanged `Okay` checks do not create history objects.
 - `MUGGING_DB` owns only the scheduler lock and future client coordination
   rows (heartbeats, leases, and report receipts). It intentionally contains no
   20,000-30,000-row target table.
@@ -35,10 +36,19 @@ unavailable until the earlier of detected mug time + 11 hours or the next
 Future client reports can add mug values and battle-stat estimates. Repeated
 sub-$300,000 reports lower the target priority. When `FFSCOUTER_API_KEY` is
 set, Fair Fight collection is limited to 25 targets in one request every 10
-minutes. A target is not eligible again for seven days, and a recent client
-battle-stat observation also satisfies that seven-day freshness window.
-Failed requests retain the same per-target cooldown so an upstream rate-limit
-cannot create an immediate retry loop.
+minutes. Fair Fight metadata is split into 14 objects in the same R2 bucket;
+one shard becomes eligible each day, so established targets are refreshed at
+most once every 14 days. Genuinely new targets enter a small immediate queue,
+receive their initial estimate at the next permitted Fair Fight interval, and
+then remain in their assigned rotation shard. A recent client battle-stat
+observation also satisfies the freshness window. Failed requests retain the
+same per-target cooldown so an upstream rate-limit cannot create an immediate
+retry loop.
+
+On the first run after upgrading, the Worker automatically converts
+`mugging/state/v1.json` into the sharded layout. The legacy object is retained
+unchanged as a rollback copy. No R2 objects or additional buckets need to be
+created manually.
 
 ## Cloudflare setup
 
@@ -75,3 +85,4 @@ broker invocation.
 
 Authentication uses `X-SLINK-Service-Token`, or `X-Admin-Token` when the
 optional admin secret is configured.
+

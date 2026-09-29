@@ -5,6 +5,10 @@ import { describe, it } from 'node:test';
 
 import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
+import {
+    runMuggingMonitor as runShardedMonitor,
+    testing as shardedTesting
+} from './monitor-core-sharded.js';
 
 describe('SLINK Mugging Intelligence Worker', () => {
     it('selects only the requested high-paying company tiers', () => {
@@ -258,6 +262,107 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(status.summary.calls_used_last_run, 150);
         assert.equal('max_calls_per_minute' in status.summary, false);
     });
+
+    it('automatically migrates legacy state into target and Fair Fight shards without deleting it', async () => {
+        const env = createEnv();
+        const now = Date.UTC(2026, 8, 28, 12, 0, 0);
+        const legacy = {
+            schema:1,
+            phase:'monitoring',
+            catalog_ruleset_version:2,
+            catalog_updated_at:now - 60_000,
+            company_ids:[77],
+            companies:{ '77':{ id:77, name:'Test Rig', rating:9 } },
+            targets:{
+                '123':{
+                    id:123,
+                    name:'Target',
+                    company_id:77,
+                    first_seen_at:now - 86_400_000,
+                    battle_stats_estimate:1_000_000,
+                    fair_fight:2.5,
+                    fair_fight_checked_at:now - 60_000
+                }
+            }
+        };
+        await env.MUGGING_BUCKET.put('mugging/state/v1.json', JSON.stringify(legacy));
+
+        const result = await shardedTesting.ensureShardedStorage(env.MUGGING_BUCKET, now);
+        assert.equal(result.migrated, true);
+        assert.equal(result.index.schema, 2);
+        assert.equal(result.index.target_shards['123'], 77 % 15);
+        assert.ok(env.MUGGING_BUCKET.values.has('mugging/state/v1.json'));
+        assert.ok(env.MUGGING_BUCKET.values.has('mugging/state/v2/index.json'));
+        assert.ok(env.MUGGING_BUCKET.values.has('mugging/state/v2/targets/shard-02.json'));
+        assert.ok(env.MUGGING_BUCKET.values.has('mugging/fair-fight/v2/shards/shard-11.json'));
+        assert.equal(
+            JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/shards/shard-11.json').body)
+                .targets['123'].battle_stats_estimate,
+            1_000_000
+        );
+    });
+
+    it('assigns each target to one stable Fair Fight shard out of fourteen', () => {
+        const shards = new Set();
+        for (let id = 1; id <= 140; id++) shards.add(shardedTesting.fairFightShardForTarget(id));
+        assert.equal(shards.size, 14);
+        assert.deepEqual([...shards].sort((a, b) => a - b), Array.from({ length:14 }, (_, index) => index));
+    });
+
+    it('checks a genuinely new target immediately, then leaves it in the 14-day rotation', async () => {
+        const env = createEnv();
+        env.FFSCOUTER_API_KEY = 'test-key';
+        const now = Date.UTC(2026, 8, 28, 12, 0, 0);
+        let fairFightRequests = 0;
+        const executePublicRequests = async requests => ({
+            key_count:1,
+            configured_capacity:20,
+            available_capacity:20,
+            results:requests.map(request => {
+                if (request.kind === 'company.types') {
+                    return { ...request, ok:true, body:{ companies:[{ id:1, name:'Oil Rig' }] } };
+                }
+                if (request.kind === 'company.snapshot') {
+                    return {
+                        ...request,
+                        ok:true,
+                        body:'id,name,type,rating,employees_hired,employees_capacity\n77,Test Rig,1,9,1,10\n'
+                    };
+                }
+                return {
+                    ...request,
+                    ok:true,
+                    body:{ company_employees:[{ id:123, name:'Target', status:{ state:'Okay' } }] }
+                };
+            })
+        });
+        const fetchFairFight = async ids => {
+            fairFightRequests++;
+            return ids.map(id => ({ player_id:id, bs_estimate:1_000_000, fair_fight:2.5 }));
+        };
+
+        const first = await runShardedMonitor(
+            env,
+            { executePublicRequests, fetchFairFight },
+            { now, maxCalls:20 }
+        );
+        const second = await runShardedMonitor(
+            env,
+            { executePublicRequests, fetchFairFight },
+            { now:now + 10 * 60_000, maxCalls:20 }
+        );
+        const pending = JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/pending.json').body);
+        const ffShard = JSON.parse(
+            env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/shards/shard-11.json').body
+        );
+
+        assert.equal(first.fair_fight_attempted, 1);
+        assert.equal(first.fair_fight_checked, 1);
+        assert.equal(second.fair_fight_attempted, 0);
+        assert.equal(fairFightRequests, 1);
+        assert.deepEqual(pending.ids, []);
+        assert.equal(ffShard.targets['123'].last_success_at, now);
+    });
 });
 
 
@@ -339,3 +444,4 @@ class D1StatementAdapter {
         };
     }
 }
+

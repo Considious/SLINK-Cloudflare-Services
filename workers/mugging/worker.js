@@ -2,9 +2,9 @@ import {
     ingestMuggingReports,
     muggingStatus,
     runMuggingMonitor
-} from './monitor-core.js';
+} from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.2.1-fair-fight-throttle';
+const WORKER_VERSION = '0.3.0-sharded-state';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -299,3 +299,4 @@ export const testing = Object.freeze({
     handleHeartbeat,
     runMonitor
 });
+
