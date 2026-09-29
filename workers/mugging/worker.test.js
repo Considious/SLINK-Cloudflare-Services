@@ -227,6 +227,14 @@ describe('SLINK Mugging Intelligence Worker', () => {
                     });
                 }
                 const requests = JSON.parse(init.body).requests;
+                const allowedKinds = new Set(['company.types', 'company.snapshot', 'company.employees']);
+                for (const request of requests) {
+                    assert.equal(
+                        allowedKinds.has(request.kind),
+                        true,
+                        'Mugging Worker sent unsupported Contribution request kind: ' + request.kind
+                    );
+                }
                 brokeredRequests += requests.length;
                 return Response.json({
                     ok:true,

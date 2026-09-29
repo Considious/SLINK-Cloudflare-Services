@@ -117,7 +117,7 @@ export async function runMuggingMonitor(env, dependencies = {}, options = {}) {
                 const companyId = companyIds[(cursor + offset) % companyIds.length];
                 requests.push({
                     request_id:'company-' + companyId,
-                    kind:'company.details',
+                    kind:'company.employees',
                     company_id:companyId
                 });
             }

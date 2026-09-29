@@ -4,7 +4,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.3.0-sharded-state';
+const WORKER_VERSION = '0.3.1-company-employees-contract';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
