@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.2-additive-permissions',
+            version: '0.4.3-mugging-permissions',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -244,6 +244,144 @@ describe('SLINK Contribution Service', () => {
         assert.equal(finalByScope.get('slink.adhd.alerts').status, 'active');
         assert.equal(finalByScope.get('slink.theme.underglow').status, 'active');
         assert.equal(finalByScope.get('slink.theme.underglow').expires_at, null);
+    });
+
+
+    it('resolves Mugging access from individual grants, faction grants, or both', async () => {
+        const env = createEnv();
+        const userId = 4468682;
+        const factionId = 98765;
+        assert.equal(
+            env.PERMISSIONS_DB.sqlite.prepare(`
+                SELECT COUNT(*) AS count
+                FROM user_scope_grants
+                WHERE scope = 'slink.mugging'
+            `).get().count,
+            0,
+            'the Mugging migration must not hard-code testing users'
+        );
+        assert.equal(
+            env.PERMISSIONS_DB.sqlite.prepare(`
+                SELECT COUNT(*) AS count
+                FROM faction_scope_grants
+                WHERE scope = 'slink.mugging'
+            `).get().count,
+            0,
+            'the Mugging migration must not hard-code testing factions'
+        );
+
+        globalThis.fetch = tornFetch({
+            accessType: 'Limited Access',
+            accessLevel: 2
+        });
+        const authenticated = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key: 'owner-permission-key',
+                terms_accepted: true,
+                terms_version: '2026-08-24',
+                terms_sha256: '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const admin = await authenticated.json();
+        const headers = { Authorization:`Bearer ${admin.session_token}` };
+
+        const catalog = await worker.fetch(
+            new Request('https://contribution.example/api/admin/scopes', { headers }),
+            env
+        );
+        assert.ok((await catalog.json()).scopes.some(
+            entry => entry.scope === 'slink.mugging'
+        ));
+
+        const directGrant = await worker.fetch(
+            jsonRequest(
+                `https://contribution.example/api/admin/users/${userId}/permissions`,
+                {
+                    operation:'grant',
+                    scopes:['slink.mugging'],
+                    permanent:true,
+                    note:'Individual Mugging tester'
+                },
+                headers
+            ),
+            env
+        );
+        assert.equal(directGrant.status, 200);
+        let resolved = await testing.loadPermissions(
+            env,
+            userId,
+            factionId,
+            Date.now()
+        );
+        assert.ok(resolved.scopes.includes('slink.mugging'));
+        assert.equal(resolved.scopeSources['slink.mugging'], 'individual');
+
+        const directRevoke = await worker.fetch(
+            jsonRequest(
+                `https://contribution.example/api/admin/users/${userId}/permissions`,
+                {
+                    operation:'revoke',
+                    scopes:['slink.mugging'],
+                    note:'Switch to faction coverage'
+                },
+                headers
+            ),
+            env
+        );
+        assert.equal(directRevoke.status, 200);
+
+        const factionGrant = await worker.fetch(
+            jsonRequest(
+                `https://contribution.example/api/admin/factions/${factionId}/permissions`,
+                {
+                    operation:'grant',
+                    scopes:['slink.mugging'],
+                    permanent:true,
+                    note:'Faction Mugging test'
+                },
+                headers
+            ),
+            env
+        );
+        assert.equal(factionGrant.status, 200);
+        const factionBody = await factionGrant.json();
+        assert.equal(
+            factionBody.scopes.find(entry => entry.scope === 'slink.mugging')
+                .faction_active,
+            true
+        );
+        resolved = await testing.loadPermissions(
+            env,
+            userId,
+            factionId,
+            Date.now()
+        );
+        assert.ok(resolved.scopes.includes('slink.mugging'));
+        assert.equal(resolved.scopeSources['slink.mugging'], 'faction');
+
+        const restoredDirect = await worker.fetch(
+            jsonRequest(
+                `https://contribution.example/api/admin/users/${userId}/permissions`,
+                {
+                    operation:'grant',
+                    scopes:['slink.mugging'],
+                    permanent:true,
+                    note:'Both grant paths active'
+                },
+                headers
+            ),
+            env
+        );
+        assert.equal(restoredDirect.status, 200);
+        resolved = await testing.loadPermissions(
+            env,
+            userId,
+            factionId,
+            Date.now()
+        );
+        assert.ok(resolved.scopes.includes('slink.mugging'));
+        assert.equal(resolved.scopeSources['slink.mugging'], 'both');
     });
 
 
@@ -491,7 +629,8 @@ function createEnv() {
         '0008-adhd-dashboard.sql',
         '0009-market-watch-tiers.sql',
         '0010-dragons-breath-theme.sql',
-        '0011-mugging-contribution-keys.sql'
+        '0011-mugging-contribution-keys.sql',
+        '0012-mugging-permission.sql'
     ]) {
         sqlite.exec(readFileSync(
             new URL(`../../permissions/migrations/${migration}`, import.meta.url),

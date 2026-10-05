@@ -81,6 +81,21 @@ to add the separately assignable `slink.theme.dragons-breath` cosmetic
 entitlement. The existing `admin.*` wildcard also unlocks this theme through
 the shared client permission resolver.
 
+Apply [`migrations/0012-mugging-permission.sql`](migrations/0012-mugging-permission.sql)
+to register the assignable `slink.mugging` scope. The migration deliberately
+grants it to nobody. Individual testers use `user_scope_grants`; selected
+factions use `faction_scope_grants`. Authentication resolves both active
+paths and returns the scope when either path is active. The signed permission
+session also reports the source as `individual`, `faction`, or `both`,
+while clients only need to check for `slink.mugging`.
+
+The owner-only permission API supports the same operations for factions at
+`/api/admin/factions/{faction_id}/permissions`. Its request body matches the
+existing user endpoint: `operation`, `scopes`, `hours` or `permanent`,
+and `note`. Changes are applied entirely in D1 and take effect at the next
+permission authentication/refresh; no extension or userscript rebuild is
+required.
+
 ## Grant paid or manual Leveling access
 
 All timestamps use Unix milliseconds. Replace the example user, expiration,

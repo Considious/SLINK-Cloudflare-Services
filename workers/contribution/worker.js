@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.2-additive-permissions
+ * Release: 0.4.3-mugging-permissions
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.2-additive-permissions';
+const WORKER_VERSION = '0.4.3-mugging-permissions';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -122,6 +122,17 @@ const worker = {
                 env,
                 positiveInteger(permissionMatch[1]),
                 url
+            );
+        }
+
+        const factionPermissionMatch = url.pathname.match(
+            /^\/api\/admin\/factions\/(\d+)\/permissions$/
+        );
+        if (factionPermissionMatch) {
+            return handleAdminFactionPermissions(
+                request,
+                env,
+                positiveInteger(factionPermissionMatch[1])
             );
         }
 
@@ -331,14 +342,14 @@ function hasScope(session, requiredScope) {
 
 async function loadPermissions(env, userId, factionId, now) {
     const result = await env.PERMISSIONS_DB.prepare(`
-        SELECT scope, expires_at
+        SELECT scope, expires_at, 'individual' AS grant_source
         FROM user_scope_grants
         WHERE user_id = ?1
           AND status = 'active'
           AND starts_at <= ?3
           AND (expires_at IS NULL OR expires_at > ?3)
         UNION ALL
-        SELECT scope, expires_at
+        SELECT scope, expires_at, 'faction' AS grant_source
         FROM faction_scope_grants
         WHERE faction_id = ?2
           AND status = 'active'
@@ -346,35 +357,43 @@ async function loadPermissions(env, userId, factionId, now) {
           AND (expires_at IS NULL OR expires_at > ?3)
         ORDER BY scope ASC
     `).bind(userId, factionId, now).all();
-    const expirations = new Map();
+    const grants = new Map();
     for (const row of result.results || []) {
         const scope = String(row?.scope || '').trim();
         if (!scope) continue;
-        if (scopeMatches(scope, ADMIN_SCOPE) && userId !== SOLE_ADMIN_USER_ID) {
-            continue;
-        }
+        if (scopeMatches(scope, ADMIN_SCOPE) && userId !== SOLE_ADMIN_USER_ID) continue;
         const expiration = row.expires_at === null || row.expires_at === undefined
             ? null
             : Number(row.expires_at);
-        const previous = expirations.get(scope);
-        if (!expirations.has(scope) || previous === null || expiration === null) {
-            expirations.set(scope, previous === null || expiration === null ? null : expiration);
-        } else {
-            expirations.set(scope, Math.max(previous, expiration));
+        const current = grants.get(scope) || { expiresAt:expiration, sources:new Set() };
+        if (current.expiresAt !== null) {
+            current.expiresAt = expiration === null
+                ? null
+                : Math.max(Number(current.expiresAt) || 0, expiration);
         }
+        if (row.grant_source === 'individual' || row.grant_source === 'faction') {
+            current.sources.add(row.grant_source);
+        }
+        grants.set(scope, current);
     }
-    const scopes = [...expirations.keys()].sort();
-    const finiteExpirations = [...expirations.values()].filter(Number.isFinite);
-    const expiresAt = finiteExpirations.length
-        ? Math.min(...finiteExpirations)
-        : null;
+    const scopes = [...grants.keys()].sort();
+    const scopeSources = Object.fromEntries(scopes.map(scope => {
+        const sources = grants.get(scope).sources;
+        return [scope, sources.has('individual') && sources.has('faction')
+            ? 'both'
+            : sources.has('faction') ? 'faction' : 'individual'];
+    }));
+    const finiteExpirations = [...grants.values()]
+        .map(grant => grant.expiresAt)
+        .filter(Number.isFinite);
+    const expiresAt = finiteExpirations.length ? Math.min(...finiteExpirations) : null;
     return {
         scopes,
+        scopeSources,
         roles: scopes.includes(ADMIN_SCOPE) ? ['admin'] : ['member'],
         expiresAt: Number.isFinite(expiresAt) ? expiresAt : null
     };
 }
-
 
 async function validateTornIdentity(apiKey) {
     const response = await fetch('https://api.torn.com/v2/key/info', {
@@ -544,6 +563,7 @@ async function handlePermissionAuth(request, env) {
             terms_version: DATA_TERMS_VERSION,
             roles: permissions.roles,
             scopes: permissions.scopes,
+            scope_sources: permissions.scopeSources,
             iat,
             exp
         };
@@ -825,6 +845,177 @@ async function updateAdminPermissions(env, session, userId, request, factionId =
     }
     await env.PERMISSIONS_DB.batch(statements);
     return adminPermissionsResponse(env, userId, availableScopes, factionId);
+}
+
+
+async function adminFactionPermissionsResponse(
+    env,
+    factionId,
+    definitions = null
+) {
+    const availableScopes = definitions || await assignableScopes(env);
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT scope, status, starts_at, expires_at, granted_by, note,
+               created_at, updated_at
+        FROM faction_scope_grants
+        WHERE faction_id = ?
+        ORDER BY scope ASC
+    `).bind(factionId).all();
+    const byScope = new Map(
+        (result.results || []).map(row => [String(row.scope), row])
+    );
+    const now = Date.now();
+    return jsonResponse({
+        ok: true,
+        faction_id: factionId,
+        scopes: availableScopes.map(definition => {
+            const grant = byScope.get(definition.scope) || null;
+            const active = Boolean(
+                grant && grant.status === 'active' &&
+                Number(grant.starts_at) <= now &&
+                (grant.expires_at === null || Number(grant.expires_at) > now)
+            );
+            const status = !grant
+                ? 'not_granted'
+                : grant.status === 'revoked'
+                    ? 'revoked'
+                    : Number(grant.starts_at) > now
+                        ? 'scheduled'
+                        : grant.expires_at !== null && Number(grant.expires_at) <= now
+                            ? 'expired'
+                            : 'active';
+            return {
+                ...definition,
+                active,
+                faction_active: active,
+                starts_at: grant ? Number(grant.starts_at) : null,
+                expires_at: grant?.expires_at === null || grant?.expires_at === undefined
+                    ? null
+                    : Number(grant.expires_at),
+                status,
+                granted_by: grant?.granted_by === null ||
+                    grant?.granted_by === undefined
+                    ? null
+                    : Number(grant.granted_by),
+                note: grant?.note || ''
+            };
+        })
+    });
+}
+
+
+async function updateAdminFactionPermissions(env, session, factionId, request) {
+    const body = await readJsonBody(request);
+    const operation = String(body?.operation || 'grant').trim().toLowerCase();
+    if (!['grant', 'revoke'].includes(operation)) {
+        throw new RequestValidationError('operation must be grant or revoke.');
+    }
+    const selected = new Set(
+        Array.isArray(body?.scopes) ? body.scopes.map(String) : []
+    );
+    const availableScopes = await assignableScopes(env);
+    const allowed = new Set(availableScopes.map(entry => entry.scope));
+    if ([...selected].some(scope => !allowed.has(scope))) {
+        throw new RequestValidationError(
+            'One or more requested scopes cannot be assigned.'
+        );
+    }
+    if (!selected.size) {
+        throw new RequestValidationError(
+            operation === 'grant'
+                ? 'Select at least one permission to add.'
+                : 'Select a permission to revoke.'
+        );
+    }
+    const now = Date.now();
+    const permanent = body?.permanent === true;
+    const hours = Number(body?.hours);
+    if (operation === 'grant' && !permanent &&
+        (!Number.isFinite(hours) || hours < 1 || hours > 8760)) {
+        throw new RequestValidationError(
+            'Grant duration must be between 1 and 8760 hours, or permanent.'
+        );
+    }
+    const expiresAt = operation === 'grant' && !permanent
+        ? now + Math.round(hours * 60 * 60 * 1000)
+        : null;
+    const note = String(
+        body?.note || (operation === 'grant'
+            ? 'Assigned from the SLINK administrator service'
+            : 'Revoked from the SLINK administrator service')
+    ).trim().slice(0, 500);
+    const statements = [];
+    for (const scope of selected) {
+        if (operation === 'grant') {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                INSERT INTO faction_scope_grants(
+                    faction_id, scope, status, starts_at, expires_at,
+                    granted_by, note, created_at, updated_at
+                ) VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(faction_id, scope) DO UPDATE SET
+                    status = 'active',
+                    starts_at = CASE
+                        WHEN faction_scope_grants.status = 'active'
+                        THEN MIN(faction_scope_grants.starts_at, excluded.starts_at)
+                        ELSE excluded.starts_at
+                    END,
+                    expires_at = CASE
+                        WHEN faction_scope_grants.status = 'active' AND faction_scope_grants.expires_at IS NULL THEN NULL
+                        WHEN excluded.expires_at IS NULL THEN NULL
+                        WHEN faction_scope_grants.status = 'active' AND faction_scope_grants.expires_at > excluded.expires_at THEN faction_scope_grants.expires_at
+                        ELSE excluded.expires_at
+                    END,
+                    granted_by = excluded.granted_by,
+                    note = excluded.note,
+                    updated_at = excluded.updated_at
+            `).bind(
+                factionId,
+                scope,
+                now,
+                expiresAt,
+                Number(session.user_id),
+                note,
+                now,
+                now
+            ));
+        } else {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                UPDATE faction_scope_grants
+                SET status = 'revoked', granted_by = ?, note = ?, updated_at = ?
+                WHERE faction_id = ? AND scope = ? AND status = 'active'
+            `).bind(
+                Number(session.user_id),
+                note || 'Revoked from the SLINK administrator service',
+                now,
+                factionId,
+                scope
+            ));
+        }
+    }
+    await env.PERMISSIONS_DB.batch(statements);
+    return adminFactionPermissionsResponse(env, factionId, availableScopes);
+}
+
+
+async function handleAdminFactionPermissions(request, env, factionId) {
+    if (!factionId) {
+        return jsonResponse({ ok: false, error: 'A valid Torn faction ID is required.' }, 400);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({ ok: false, error: 'admin.* permission is required.' }, 403);
+    }
+    try {
+        if (request.method === 'GET') {
+            return adminFactionPermissionsResponse(env, factionId);
+        }
+        if (request.method === 'POST') {
+            return updateAdminFactionPermissions(env, session, factionId, request);
+        }
+        return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
 }
 
 
@@ -2275,6 +2466,7 @@ class RequestValidationError extends Error {
 export const testing = {
     decryptApiKey,
     encryptApiKey,
+    loadPermissions,
     runScheduledJobs,
     sha256Hex,
     validatePublicOnlyTornKey
