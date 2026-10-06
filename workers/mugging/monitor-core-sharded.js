@@ -442,6 +442,72 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
     };
 }
 
+export async function contributorTaskAssignments(env, input = {}, now = Date.now()) {
+    if (!env.MUGGING_BUCKET) throw new Error('The MUGGING_BUCKET binding is required.');
+    const clientId = String(input.client_id ?? input.clientId ?? '').trim().slice(0, 120);
+    if (!clientId) throw new Error('A contributor client ID is required.');
+    const active = input.active === true;
+    const apiBudget = active ? 10 : 5;
+    const limit = boundedInteger(input.limit, apiBudget * 4, 1, 40);
+    await ensureShardedStorage(env.MUGGING_BUCKET, now);
+    const minuteSlot = Math.floor(now / 60_000);
+    const startShard = stableHash(`${clientId}:${minuteSlot}`) % STATE_SHARD_COUNT;
+    let selectedShard = startShard;
+    let shard = await loadStateShard(env.MUGGING_BUCKET, selectedShard);
+    for (let offset = 1; offset < STATE_SHARD_COUNT && !Object.keys(shard.targets || {}).length; offset++) {
+        selectedShard = (startShard + offset) % STATE_SHARD_COUNT;
+        shard = await loadStateShard(env.MUGGING_BUCKET, selectedShard);
+    }
+    const candidates = [];
+    for (const target of Object.values(shard.targets || {})) {
+        const id = positiveInteger(target?.id);
+        if (!id) continue;
+        const state = String(target?.status_state || 'Unknown');
+        if (/federal/i.test(state)) continue;
+        const statusUntilMs = normalizeUnixSeconds(target?.status_until) * 1000;
+        const timedUntil = /hospital|jail|travel/i.test(state) ? statusUntilMs : 0;
+        const freeAt = Math.max(0, Number(target?.free_at) || 0);
+        const nextCheckAt = Math.max(timedUntil, freeAt);
+        if (nextCheckAt > now) continue;
+        const lastCheckedAt = Math.max(0, Number(target?.last_checked_at) || 0);
+        candidates.push({ target, id, lastCheckedAt, order:stableHash(`${clientId}:${minuteSlot}:${id}`) });
+    }
+    candidates.sort((left, right) =>
+        left.lastCheckedAt - right.lastCheckedAt ||
+        left.order - right.order ||
+        left.id - right.id
+    );
+    return {
+        generated_at:now,
+        mode:active ? 'active' : 'inactive',
+        inactivity_threshold_ms:5 * 60 * 1000,
+        api_budget_per_minute:apiBudget,
+        personal_assignments_allowed:active,
+        shard:selectedShard,
+        tasks:candidates.slice(0, limit).map(row => ({
+            kind:'player.status',
+            player_id:row.id,
+            name:String(row.target?.name || `Player ${row.id}`).slice(0, 80),
+            last_checked_at:row.lastCheckedAt,
+            status:{
+                state:String(row.target?.status_state || 'Unknown'),
+                description:String(row.target?.status_description || ''),
+                until:normalizeUnixSeconds(row.target?.status_until)
+            }
+        }))
+    };
+}
+
+function stableHash(value) {
+    let hash = 2166136261;
+    const text = String(value || '');
+    for (let index = 0; index < text.length; index++) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
 export function roughFairFightValue(userBattleStats, targetBattleStats) {
     const own = finitePositive(userBattleStats);
     const opponent = finitePositive(targetBattleStats);
@@ -985,6 +1051,7 @@ export const testing = Object.freeze({
     ...core,
     ensureShardedStorage,
     fairFightShardForTarget,
+    contributorTaskAssignments,
     roughFairFightValue,
     roughMuggingAssignments,
     selectNextStateShard,

@@ -1,11 +1,12 @@
 import {
+    contributorTaskAssignments,
     ingestMuggingReports,
     muggingStatus,
     roughMuggingAssignments,
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.4.0-rough-assignments';
+const WORKER_VERSION = '0.5.0-contributor-scheduling';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -38,6 +39,23 @@ const worker = {
                 const body = await readJson(request);
                 const result = await roughMuggingAssignments(env, {
                     ...body,
+                    user_id:session.user_id
+                }, Date.now());
+                return jsonResponse({ ok:true, version:WORKER_VERSION, ...result });
+            } catch (error) {
+                return requestError(error);
+            }
+        }
+        if (url.pathname === '/api/contributor/tasks' && request.method === 'POST') {
+            try {
+                const session = await authorizedClient(request, env, 'slink.mugging');
+                if (!session) return unauthorized();
+                const body = await readJson(request);
+                const clientId = String(body?.client_id || '').trim().slice(0, 120);
+                if (!clientId) throw new RequestValidationError('client_id is required.');
+                const result = await contributorTaskAssignments(env, {
+                    ...body,
+                    client_id:clientId,
                     user_id:session.user_id
                 }, Date.now());
                 return jsonResponse({ ok:true, version:WORKER_VERSION, ...result });

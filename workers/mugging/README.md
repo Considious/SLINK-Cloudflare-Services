@@ -78,12 +78,14 @@ broker invocation.
 ## Internal endpoints
 
 - `GET /api/health`: non-secret operational summary.
-- `POST /api/assignments/rough`: permission-session authenticated candidate assignment using the requesting player's battle-stat total and cached target estimates. The response labels its Fair Fight values as rough estimates and does not start contributor polling.
+- `POST /api/assignments/rough`: permission-session authenticated candidate assignment using the requesting player's battle-stat total and cached target estimates. The response labels its Fair Fight values as rough estimates.
+- `POST /api/contributor/tasks`: permission-session authenticated, deterministic player-status work. Active clients receive a 10-check/minute budget; clients inactive for five minutes receive 5 checks/minute and cannot request new personal assignments. It reads one existing R2 state shard per request and skips Federal or known-timed unavailable targets.
 - `GET /api/internal/status`: authenticated detailed status.
 - `POST /api/internal/run`: authenticated one-time collection run.
 - `POST /api/reports`: authenticated future client observations.
 - `POST /api/clients/heartbeat`: authenticated future client capacity signal.
 
-Authentication uses `X-SLINK-Service-Token`, or `X-Admin-Token` when the
-optional admin secret is configured.
+`/api/assignments/rough` and `/api/contributor/tasks` use the caller's live SLINK permission session and require `slink.mugging`. Internal routes use `X-SLINK-Service-Token`, or `X-Admin-Token` when the optional admin secret is configured.
+
+Phase 9 clients run contributor checks through their existing shared Torn API limiter. They keep results in their local player-intelligence cache and a pending synchronization queue. Publishing those queued observations into the shared R2 intelligence pool is Phase 10.
 

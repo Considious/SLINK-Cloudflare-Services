@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
 import {
+    contributorTaskAssignments,
     roughMuggingAssignments,
     runMuggingMonitor as runShardedMonitor,
     testing as shardedTesting
@@ -230,6 +231,57 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(result.targets[0].id, 15);
         assert.equal(result.targets[0].fair_fight, 2.33);
         assert.equal(result.targets[0].confidence, 'rough · recent estimate');
+    });
+
+    it('schedules ten active or five inactive contributor checks without known-timer waste', async () => {
+        const env = createEnv();
+        const now = Date.UTC(2026, 9, 5, 13, 0, 0);
+        const targets = {};
+        for (let index = 1; index <= 40; index++) {
+            const id = index * 15;
+            targets[String(id)] = {
+                id, name:`Target ${id}`, status_state:index === 1 ? 'Hospital' : 'Okay',
+                status_until:index === 1 ? Math.floor((now + 300_000) / 1000) : 0,
+                last_checked_at:now - index * 60_000
+            };
+        }
+        await env.MUGGING_BUCKET.put('mugging/state/v2/targets/shard-00.json', JSON.stringify({
+            schema:2, shard:0, company_ids:[], targets, updated_at:now
+        }));
+        await env.MUGGING_BUCKET.put('mugging/state/v2/index.json', JSON.stringify({
+            schema:2, phase:'monitoring', company_ids:[], companies:{}, target_shards:{},
+            monitor_shard_cursor:0, catalog_ruleset_version:2, catalog_updated_at:now,
+            cycle_started_at:now, shard_summaries:{}, shards_completed_in_cycle:0,
+            last_cycle_completed_at:0, fair_fight_last_request_at:0, fair_fight_last_success_at:0,
+            fair_fight_last_error_at:0, fair_fight_last_error:'', created_at:now, updated_at:now,
+            last_run:null, summary:null
+        }));
+        const active = await contributorTaskAssignments(env, { client_id:'client-a', active:true, limit:40 }, now);
+        const inactive = await contributorTaskAssignments(env, { client_id:'client-a', active:false, limit:40 }, now);
+        assert.equal(active.mode, 'active');
+        assert.equal(active.api_budget_per_minute, 10);
+        assert.equal(active.personal_assignments_allowed, true);
+        assert.equal(inactive.mode, 'inactive');
+        assert.equal(inactive.api_budget_per_minute, 5);
+        assert.equal(inactive.personal_assignments_allowed, false);
+        assert.equal(active.tasks.some(task => task.player_id === 15), false);
+    });
+
+    it('serves contributor tasks only through a live slink.mugging permission session', async () => {
+        const env = createEnv();
+        env.CONTRIBUTION_SERVICE = {
+            async fetch() { return Response.json({ ok:true, user_id:999, scopes:['slink.mugging'] }); }
+        };
+        const response = await worker.fetch(new Request('https://mugging.example/api/contributor/tasks', {
+            method:'POST',
+            headers:{ Authorization:'Bearer permission-session', 'Content-Type':'application/json' },
+            body:JSON.stringify({ client_id:'extension-test', active:false, limit:20 })
+        }), env);
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.mode, 'inactive');
+        assert.equal(body.api_budget_per_minute, 5);
+        assert.equal(body.personal_assignments_allowed, false);
     });
 
     it('serves rough assignments only through a live slink.mugging permission session', async () => {
