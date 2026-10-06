@@ -447,6 +447,7 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
     const clientId = String(input.client_id ?? input.clientId ?? '').trim().slice(0, 120);
     if (!clientId) throw new Error('A contributor client ID is required.');
     const active = input.active === true;
+    const userId = positiveInteger(input.user_id ?? input.userId);
     const apiBudget = active ? 10 : 5;
     const limit = boundedInteger(input.limit, apiBudget * 4, 1, 40);
     await ensureShardedStorage(env.MUGGING_BUCKET, now);
@@ -461,7 +462,7 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
     const candidates = [];
     for (const target of Object.values(shard.targets || {})) {
         const id = positiveInteger(target?.id);
-        if (!id) continue;
+        if (!id || id === userId) continue;
         const state = String(target?.status_state || 'Unknown');
         if (/federal/i.test(state)) continue;
         const statusUntilMs = normalizeUnixSeconds(target?.status_until) * 1000;

@@ -256,7 +256,7 @@ describe('SLINK Mugging Intelligence Worker', () => {
             fair_fight_last_error_at:0, fair_fight_last_error:'', created_at:now, updated_at:now,
             last_run:null, summary:null
         }));
-        const active = await contributorTaskAssignments(env, { client_id:'client-a', active:true, limit:40 }, now);
+        const active = await contributorTaskAssignments(env, { client_id:'client-a', user_id:30, active:true, limit:40 }, now);
         const inactive = await contributorTaskAssignments(env, { client_id:'client-a', active:false, limit:40 }, now);
         assert.equal(active.mode, 'active');
         assert.equal(active.api_budget_per_minute, 10);
@@ -265,6 +265,7 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(inactive.api_budget_per_minute, 5);
         assert.equal(inactive.personal_assignments_allowed, false);
         assert.equal(active.tasks.some(task => task.player_id === 15), false);
+        assert.equal(active.tasks.some(task => task.player_id === 30), false);
     });
 
     it('serves contributor tasks only through a live slink.mugging permission session', async () => {
