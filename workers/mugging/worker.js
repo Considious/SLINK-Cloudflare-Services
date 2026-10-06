@@ -6,7 +6,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.5.0-contributor-scheduling';
+const WORKER_VERSION = '0.6.0-contributor-sync';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -59,6 +59,27 @@ const worker = {
                     user_id:session.user_id
                 }, Date.now());
                 return jsonResponse({ ok:true, version:WORKER_VERSION, ...result });
+            } catch (error) {
+                return requestError(error);
+            }
+        }
+        if (url.pathname === '/api/contributor/reports' && request.method === 'POST') {
+            try {
+                const session = await authorizedClient(request, env, 'slink.mugging');
+                if (!session) return unauthorized();
+                const body = await readJson(request);
+                const clientId = String(body?.client_id || '').trim().slice(0, 120);
+                if (!clientId) throw new RequestValidationError('client_id is required.');
+                const input = Array.isArray(body?.reports) ? body.reports.slice(0, MAX_REPORTS) : [];
+                const reports = normalizeContributorReports(input, clientId, session.user_id, Date.now());
+                const result = await ingestMuggingReports(env, reports, Date.now());
+                return jsonResponse({
+                    ok:true,
+                    version:WORKER_VERSION,
+                    submitted:input.length,
+                    ignored:input.length - reports.length,
+                    ...result
+                });
             } catch (error) {
                 return requestError(error);
             }
@@ -244,6 +265,39 @@ async function handleHeartbeat(request, env) {
 }
 
 
+function normalizeContributorReports(rows, clientId, userId, now) {
+    const minimumObservedAt = now - 7 * 24 * 60 * 60 * 1000;
+    const callerId = positiveInteger(userId);
+    const reports = [];
+    for (const row of rows) {
+        const targetId = positiveInteger(row?.target_id ?? row?.player_id ?? row?.playerId);
+        if (!targetId || targetId === callerId) continue;
+        const observedAt = Math.min(now, Math.max(minimumObservedAt, Number(row?.observed_at ?? row?.observedAt) || now));
+        const reportId = String(row?.report_id || `${clientId}:${targetId}:${Math.trunc(observedAt)}`).trim().slice(0, 160);
+        reports.push({
+            report_id:reportId,
+            target_id:targetId,
+            name:String(row?.name || '').slice(0, 80),
+            source:'contributor_status',
+            observed_at:observedAt,
+            status_state:String(row?.status_state ?? row?.state ?? row?.status?.state ?? '').slice(0, 40),
+            status_description:String(row?.status_description ?? row?.description ?? row?.status?.description ?? '').slice(0, 500),
+            status_until:Math.max(0, Math.trunc(Number(row?.status_until ?? row?.until ?? row?.status?.until) || 0)),
+            level:boundedInteger(row?.level, 0, 0, 100),
+            bounty_count:boundedInteger(row?.bounty_count ?? row?.bountyCount, 0, 0, 100000),
+            bounty_total:Math.max(0, Number(row?.bounty_total ?? row?.bountyTotal) || 0),
+            battle_stats_estimate:Number.isFinite(Number(row?.battle_stats_estimate ?? row?.battleStatsEstimate))
+                ? Math.max(0, Number(row?.battle_stats_estimate ?? row?.battleStatsEstimate))
+                : null,
+            fair_fight:Number.isFinite(Number(row?.fair_fight ?? row?.fairFight))
+                ? Math.max(0, Number(row?.fair_fight ?? row?.fairFight))
+                : null
+        });
+    }
+    return reports;
+}
+
+
 async function authorizedClient(request, env, requiredScope) {
     if (!env.CONTRIBUTION_SERVICE || !env.CONTRIBUTION_SERVICE_TOKEN) {
         throw new Error('Contribution Worker binding and token are required.');
@@ -360,6 +414,7 @@ export const testing = Object.freeze({
     executePublicRequests,
     getPublicRequestCapacity,
     handleHeartbeat,
+    normalizeContributorReports,
     runMonitor
 });
 

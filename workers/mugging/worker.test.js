@@ -268,6 +268,52 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(active.tasks.some(task => task.player_id === 30), false);
     });
 
+    it('batches permission-gated contributor observations into shared R2 state', async () => {
+        const env = createEnv();
+        env.CONTRIBUTION_SERVICE = {
+            async fetch() { return Response.json({ ok:true, user_id:999, scopes:['slink.mugging'] }); }
+        };
+        const observedAt = Date.UTC(2026, 9, 6, 12, 0, 0);
+        const response = await worker.fetch(new Request('https://mugging.example/api/contributor/reports', {
+            method:'POST',
+            headers:{ Authorization:'Bearer permission-session', 'Content-Type':'application/json' },
+            body:JSON.stringify({
+                client_id:'extension-test',
+                reports:[{
+                    report_id:'extension-test:123:' + observedAt,
+                    player_id:123,
+                    name:'Shared Target',
+                    observed_at:observedAt,
+                    state:'Hospital',
+                    description:'In hospital',
+                    until:Math.floor((observedAt + 60_000) / 1000),
+                    level:42,
+                    bountyCount:2,
+                    bountyTotal:750000
+                }, {
+                    report_id:'self',
+                    player_id:999,
+                    observed_at:observedAt,
+                    state:'Okay'
+                }]
+            })
+        }), env);
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.submitted, 2);
+        assert.equal(body.accepted, 1);
+        assert.equal(body.ignored, 1);
+        assert.deepEqual(body.acknowledged_report_ids, ['extension-test:123:' + observedAt]);
+        const index = JSON.parse(env.MUGGING_BUCKET.values.get('mugging/state/v2/index.json').body);
+        const shardNumber = index.target_shards['123'];
+        const shard = JSON.parse(env.MUGGING_BUCKET.values.get(
+            `mugging/state/v2/targets/shard-${String(shardNumber).padStart(2, '0')}.json`
+        ).body);
+        assert.equal(shard.targets['123'].status_state, 'Hospital');
+        assert.equal(shard.targets['123'].bounty_total, 750000);
+        assert.equal(shard.targets['123'].last_checked_at, observedAt);
+    });
+
     it('serves contributor tasks only through a live slink.mugging permission session', async () => {
         const env = createEnv();
         env.CONTRIBUTION_SERVICE = {

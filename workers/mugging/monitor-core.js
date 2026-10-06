@@ -645,15 +645,28 @@ function normalizeReports(value, now) {
     for (const row of Array.isArray(value) ? value : []) {
         const targetId = positiveInteger(row?.target_id ?? row?.id);
         if (!targetId) continue;
-        const source = ['client_mug', 'attack_page', 'client_scrape', 'fair_fight'].includes(String(row?.source)) ? String(row.source) : 'client_mug';
+        const requestedSource = String(row?.source || '');
+        const source = ['client_mug', 'attack_page', 'client_scrape', 'fair_fight', 'contributor_status'].includes(requestedSource)
+            ? requestedSource
+            : 'client_mug';
         const amountValue = finiteNumber(row?.amount ?? row?.mug_amount);
+        const bountyCountValue = finiteNumber(row?.bounty_count ?? row?.bountyCount);
+        const bountyTotalValue = finiteNumber(row?.bounty_total ?? row?.bountyTotal);
+        const levelValue = finiteNumber(row?.level);
         reports.push({
+            report_id:String(row?.report_id || '').trim().slice(0, 160),
             target_id:targetId,
             name:String(row?.name || '').slice(0, 80),
             source,
             mugged_at:source === 'client_mug' ? Number(row?.mugged_at ?? row?.observed_at) || now : 0,
             amount:amountValue,
             observed_at:Number(row?.observed_at) || now,
+            status_state:String(row?.status_state ?? row?.state ?? row?.status?.state ?? '').slice(0, 40),
+            status_description:String(row?.status_description ?? row?.description ?? row?.status?.description ?? '').slice(0, 500),
+            status_until:Math.max(0, Math.trunc(Number(row?.status_until ?? row?.until ?? row?.status?.until) || 0)),
+            level:levelValue === null ? null : Math.max(0, levelValue),
+            bounty_count:bountyCountValue === null ? null : Math.max(0, Math.trunc(bountyCountValue)),
+            bounty_total:bountyTotalValue === null ? null : Math.max(0, bountyTotalValue),
             battle_stats_estimate:finiteNumber(row?.battle_stats_estimate ?? row?.battle_stats),
             battle_stats_source:source === 'fair_fight' ? 'fair_fight' : source,
             fair_fight:finiteNumber(row?.fair_fight)

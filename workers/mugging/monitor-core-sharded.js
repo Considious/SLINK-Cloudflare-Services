@@ -296,7 +296,7 @@ async function mergeScansIntoShards(bucket, index, dirtyShards, scanResults, now
 export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
     if (!env.MUGGING_BUCKET) throw new Error('The MUGGING_BUCKET binding is required.');
     const reports = core.normalizeReports(rawReports, now);
-    if (!reports.length) return { accepted:0, events:0 };
+    if (!reports.length) return { accepted:0, events:0, acknowledged_report_ids:[] };
     const storage = await ensureShardedStorage(env.MUGGING_BUCKET, now);
     const indexRecord = storage.record;
     const index = indexRecord.value;
@@ -318,6 +318,21 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
         const shell = { targets:shard.targets };
         const target = core.ensureTarget(shell, report.target_id, report.name, now);
         if (!existed && !newTargetIds.includes(report.target_id)) newTargetIds.push(report.target_id);
+        const observedAt = Math.max(0, Number(report.observed_at) || now);
+        const currentStatusAt = Math.max(0, Number(target.last_checked_at) || 0);
+        if (report.name && (!target.name || observedAt >= Number(target.last_seen_at || 0))) target.name = report.name;
+        if (observedAt >= currentStatusAt) {
+            if (report.status_state) {
+                target.status_state = report.status_state;
+                target.status_description = report.status_description;
+                target.status_until = report.status_until;
+            }
+            if (report.level !== null) target.level = report.level;
+            if (report.bounty_count !== null) target.bounty_count = report.bounty_count;
+            if (report.bounty_total !== null) target.bounty_total = report.bounty_total;
+            target.last_checked_at = observedAt;
+            target.last_seen_at = Math.max(Number(target.last_seen_at) || 0, observedAt);
+        }
         if (report.mugged_at) core.recordMug(target, report.mugged_at, report.source, report.amount, events);
         if (report.amount !== null) core.recordMugValue(target, report.amount);
         core.applyBattleStats(target, report, now);
@@ -343,9 +358,11 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
         for (const report of rows) {
             const key = String(report.target_id);
             const entry = record.value.targets[key] || { id:report.target_id, assigned_at:now };
-            entry.observed_at = Math.max(Number(entry.observed_at) || 0, Number(report.observed_at) || now);
-            if (report.battle_stats_estimate !== null) entry.battle_stats_estimate = report.battle_stats_estimate;
-            if (report.fair_fight !== null) entry.fair_fight = report.fair_fight;
+            const observedAt = Number(report.observed_at) || now;
+            const isCurrent = observedAt >= (Number(entry.observed_at) || 0);
+            entry.observed_at = Math.max(Number(entry.observed_at) || 0, observedAt);
+            if (isCurrent && report.battle_stats_estimate !== null) entry.battle_stats_estimate = report.battle_stats_estimate;
+            if (isCurrent && report.fair_fight !== null) entry.fair_fight = report.fair_fight;
             record.value.targets[key] = entry;
         }
         record.value.updated_at = now;
@@ -357,7 +374,11 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
     await writeIndex(env.MUGGING_BUCKET, indexRecord, index);
     await writeEventBatch(env.MUGGING_BUCKET, 'client', reports, now);
     await writeStatus(env.MUGGING_BUCKET, statusFromIndex(index));
-    return { accepted:reports.length, events:events.length };
+    return {
+        accepted:reports.length,
+        events:events.length,
+        acknowledged_report_ids:reports.map(report => report.report_id).filter(Boolean)
+    };
 }
 
 export async function muggingStatus(env) {
