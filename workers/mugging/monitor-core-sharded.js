@@ -368,6 +368,112 @@ export async function muggingStatus(env) {
     return { configured:true, ...statusFromIndex(storage.index) };
 }
 
+export async function roughMuggingAssignments(env, input = {}, now = Date.now()) {
+    if (!env.MUGGING_BUCKET) throw new Error('The MUGGING_BUCKET binding is required.');
+    const userBattleStats = finitePositive(input.user_battle_stats ?? input.userBattleStats);
+    if (userBattleStats === null) throw new Error('A positive requesting-user battle-stat total is required.');
+    const minimum = boundedNumber(input.min_fair_fight ?? input.minFairFight, 1, 1, 3);
+    const maximum = boundedNumber(input.max_fair_fight ?? input.maxFairFight, 3, 1, 3);
+    if (minimum > maximum) throw new Error('Minimum Fair Fight cannot be higher than maximum Fair Fight.');
+    const limit = boundedInteger(input.limit, 50, 1, 100);
+    const userId = positiveInteger(input.user_id ?? input.userId);
+    await ensureShardedStorage(env.MUGGING_BUCKET, now);
+    const shards = await Promise.all(
+        Array.from({ length:STATE_SHARD_COUNT }, (_, shard) => loadStateShard(env.MUGGING_BUCKET, shard))
+    );
+    const allTargets = shards.flatMap(shard => Object.values(shard.targets || {}));
+    let estimable = 0;
+    const candidates = [];
+    for (const target of allTargets) {
+        const id = positiveInteger(target?.id);
+        const targetBattleStats = finitePositive(target?.battle_stats_estimate);
+        if (!id || id === userId || targetBattleStats === null) continue;
+        estimable++;
+        const state = String(target?.status_state || 'Unknown');
+        if (/federal/i.test(state)) continue;
+        const statusUntilSeconds = normalizeUnixSeconds(target?.status_until);
+        const statusBlockedUntil = /hospital|jail/i.test(state) ? statusUntilSeconds * 1000 : 0;
+        const freeAt = Math.max(0, Number(target?.free_at) || 0);
+        if (Math.max(statusBlockedUntil, freeAt) > now) continue;
+        const roughFairFight = roughFairFightValue(userBattleStats, targetBattleStats);
+        if (roughFairFight < minimum || roughFairFight > maximum) continue;
+        const priorityMultiplier = Math.max(0.05, Number(target?.priority_multiplier) || 1);
+        const score = Number((priorityMultiplier * roughFairFight).toFixed(6));
+        candidates.push({ target, id, targetBattleStats, roughFairFight, priorityMultiplier, score, statusUntilSeconds });
+    }
+    candidates.sort((left, right) =>
+        right.score - left.score ||
+        right.roughFairFight - left.roughFairFight ||
+        right.targetBattleStats - left.targetBattleStats ||
+        left.id - right.id
+    );
+    return {
+        generated_at:now,
+        estimate_kind:'rough',
+        estimate_source:'cached battle-stat estimate',
+        user_battle_stats:userBattleStats,
+        pool:{ total:allTargets.length, estimable, eligible:candidates.length },
+        targets:candidates.slice(0, limit).map(row => ({
+            id:row.id,
+            name:String(row.target?.name || `Player ${row.id}`).slice(0, 80),
+            company_id:positiveInteger(row.target?.company_id) || 0,
+            company_name:String(row.target?.company_name || ''),
+            company_type:String(row.target?.company_type || ''),
+            company_rating:Math.max(0, Number(row.target?.company_rating) || 0),
+            position:String(row.target?.position || ''),
+            status:{
+                state:String(row.target?.status_state || 'Unknown'),
+                description:String(row.target?.status_description || ''),
+                until:row.statusUntilSeconds
+            },
+            fair_fight:row.roughFairFight,
+            rough_fair_fight:row.roughFairFight,
+            battle_stats_estimate:row.targetBattleStats,
+            battle_stats_checked_at:Math.max(0, Number(row.target?.battle_stats_checked_at) || 0),
+            estimate_kind:'rough',
+            estimate_source:String(row.target?.battle_stats_source || 'cached'),
+            confidence:assignmentConfidence(row.target, now),
+            priority_multiplier:row.priorityMultiplier,
+            mug_count_7d:Math.max(0, Number(row.target?.mug_count_7d) || 0),
+            mug_count_30d:Math.max(0, Number(row.target?.mug_count_30d) || 0),
+            mug_value_average:Math.max(0, Number(row.target?.mug_value_average) || 0),
+            last_checked_at:Math.max(0, Number(row.target?.last_checked_at) || 0)
+        }))
+    };
+}
+
+export function roughFairFightValue(userBattleStats, targetBattleStats) {
+    const own = finitePositive(userBattleStats);
+    const opponent = finitePositive(targetBattleStats);
+    if (own === null || opponent === null) return null;
+    return Number(Math.min(3, Math.max(1, 1 + (8 / 3) * (opponent / own))).toFixed(2));
+}
+
+function assignmentConfidence(target, now) {
+    const checkedAt = Math.max(0, Number(target?.battle_stats_checked_at) || 0);
+    if (!checkedAt) return 'rough · age unknown';
+    const ageDays = Math.max(0, (now - checkedAt) / (24 * 60 * 60 * 1000));
+    if (ageDays <= 7) return 'rough · recent estimate';
+    if (ageDays <= 21) return 'rough · aging estimate';
+    return 'rough · stale estimate';
+}
+
+function normalizeUnixSeconds(value) {
+    const number = Math.max(0, Number(value) || 0);
+    return Math.trunc(number > 10_000_000_000 ? number / 1000 : number);
+}
+
+function finitePositive(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function boundedNumber(value, fallback, minimum, maximum) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(maximum, Math.max(minimum, number));
+}
+
 async function registerNewFairFightTargets(bucket, index, ids, now) {
     const pendingRecord = await readJson(bucket, PENDING_KEY, { schema:1, ids:[], updated_at:0 });
     const pending = new Set(pendingRecord.value.ids.map(Number).filter(Number.isInteger));
@@ -879,6 +985,8 @@ export const testing = Object.freeze({
     ...core,
     ensureShardedStorage,
     fairFightShardForTarget,
+    roughFairFightValue,
+    roughMuggingAssignments,
     selectNextStateShard,
     stateShardForCompany,
     stateShardForTarget

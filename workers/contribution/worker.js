@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.3-mugging-permissions
+ * Release: 0.4.4-permission-introspection
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.3-mugging-permissions';
+const WORKER_VERSION = '0.4.4-permission-introspection';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -96,6 +96,13 @@ const worker = {
             request.method === 'POST'
         ) {
             return handlePermissionAuth(request, env);
+        }
+
+        if (
+            url.pathname === '/api/internal/permissions/session' &&
+            request.method === 'GET'
+        ) {
+            return handleInternalPermissionSession(request, env);
         }
 
         if (url.pathname === '/api/admin/scopes') {
@@ -609,6 +616,38 @@ async function assignableScopes(env) {
 function adminAllowed(session) {
     return Number(session?.user_id) === SOLE_ADMIN_USER_ID &&
         hasScope(session, ADMIN_SCOPE);
+}
+
+
+async function handleInternalPermissionSession(request, env) {
+    try {
+        if (!await isServiceRequest(request, env)) {
+            return serviceAuthenticationRequired();
+        }
+        const session = await permissionSession(request, env);
+        if (!session) {
+            return jsonResponse({ ok:false, error:'A valid SLINK permission session is required.' }, 401);
+        }
+        requireDatabase(env);
+        const resolved = await loadPermissions(
+            env,
+            positiveInteger(session.user_id),
+            Math.max(0, Number(session.faction_id) || 0),
+            Date.now()
+        );
+        return jsonResponse({
+            ok:true,
+            user_id:Number(session.user_id),
+            user_name:String(session.user_name || ''),
+            faction_id:Math.max(0, Number(session.faction_id) || 0),
+            roles:resolved.roles,
+            scopes:resolved.scopes,
+            scope_sources:resolved.scopeSources,
+            expires_at:resolved.expiresAt
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
 }
 
 

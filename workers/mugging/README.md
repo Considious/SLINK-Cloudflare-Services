@@ -78,6 +78,7 @@ broker invocation.
 ## Internal endpoints
 
 - `GET /api/health`: non-secret operational summary.
+- `POST /api/assignments/rough`: permission-session authenticated candidate assignment using the requesting player's battle-stat total and cached target estimates. The response labels its Fair Fight values as rough estimates and does not start contributor polling.
 - `GET /api/internal/status`: authenticated detailed status.
 - `POST /api/internal/run`: authenticated one-time collection run.
 - `POST /api/reports`: authenticated future client observations.

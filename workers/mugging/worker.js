@@ -1,10 +1,11 @@
 import {
     ingestMuggingReports,
     muggingStatus,
+    roughMuggingAssignments,
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.3.1-company-employees-contract';
+const WORKER_VERSION = '0.4.0-rough-assignments';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -26,6 +27,20 @@ const worker = {
         if (url.pathname === '/api/health' && request.method === 'GET') {
             try {
                 return jsonResponse({ ok:true, version:WORKER_VERSION, ...await muggingStatus(env) });
+            } catch (error) {
+                return requestError(error);
+            }
+        }
+        if (url.pathname === '/api/assignments/rough' && request.method === 'POST') {
+            try {
+                const session = await authorizedClient(request, env, 'slink.mugging');
+                if (!session) return unauthorized();
+                const body = await readJson(request);
+                const result = await roughMuggingAssignments(env, {
+                    ...body,
+                    user_id:session.user_id
+                }, Date.now());
+                return jsonResponse({ ok:true, version:WORKER_VERSION, ...result });
             } catch (error) {
                 return requestError(error);
             }
@@ -211,6 +226,35 @@ async function handleHeartbeat(request, env) {
 }
 
 
+async function authorizedClient(request, env, requiredScope) {
+    if (!env.CONTRIBUTION_SERVICE || !env.CONTRIBUTION_SERVICE_TOKEN) {
+        throw new Error('Contribution Worker binding and token are required.');
+    }
+    const authorization = request.headers.get('Authorization') || '';
+    if (!authorization.startsWith('Bearer ')) return null;
+    const response = await env.CONTRIBUTION_SERVICE.fetch(
+        'https://slink-contribution.internal/api/internal/permissions/session',
+        { headers:{
+            Authorization:authorization,
+            'X-SLINK-Service-Token':env.CONTRIBUTION_SERVICE_TOKEN
+        } }
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) return null;
+    const scopes = Array.isArray(data.scopes) ? data.scopes.map(String) : [];
+    if (!scopes.some(scope => scopeMatches(scope, requiredScope))) return null;
+    return data;
+}
+
+
+function scopeMatches(grantedScope, requiredScope) {
+    const granted = String(grantedScope || '');
+    const required = String(requiredScope || '');
+    if (granted === '*' || granted === required) return true;
+    return granted.endsWith('.*') && required.startsWith(granted.slice(0, -1));
+}
+
+
 async function authorized(request, env) {
     const supplied = request.headers.get('X-SLINK-Service-Token') ||
         request.headers.get('X-Admin-Token') || '';
@@ -294,6 +338,7 @@ function errorMessage(error) {
 class RequestValidationError extends Error {}
 
 export const testing = Object.freeze({
+    authorizedClient,
     executePublicRequests,
     getPublicRequestCapacity,
     handleHeartbeat,

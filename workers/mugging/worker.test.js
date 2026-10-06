@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
 import {
+    roughMuggingAssignments,
     runMuggingMonitor as runShardedMonitor,
     testing as shardedTesting
 } from './monitor-core-sharded.js';
@@ -187,6 +188,69 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(fairFightRequests, 1);
         assert.equal(status.fair_fight.last_error, 'Too many requests');
         assert.equal(status.fair_fight.next_request_at, now + 10 * 60_000);
+    });
+
+    it('assigns cached targets by requesting-user rough Fair Fight without contributor polling', async () => {
+        const env = createEnv();
+        const now = Date.UTC(2026, 9, 5, 12, 0, 0);
+        const shard = {
+            schema:2,
+            shard:0,
+            company_ids:[30],
+            targets:{
+                '15':{
+                    id:15, name:'Eligible', company_id:30, company_name:'Test Rig',
+                    status_state:'Okay', status_until:0, priority_multiplier:1,
+                    battle_stats_estimate:5_000_000, battle_stats_source:'fair_fight',
+                    battle_stats_checked_at:now - 86_400_000
+                },
+                '30':{
+                    id:30, name:'Unavailable', status_state:'Hospital',
+                    status_until:Math.floor((now + 60_000) / 1000),
+                    battle_stats_estimate:4_000_000
+                }
+            },
+            updated_at:now
+        };
+        await env.MUGGING_BUCKET.put('mugging/state/v2/targets/shard-00.json', JSON.stringify(shard));
+        await env.MUGGING_BUCKET.put('mugging/state/v2/index.json', JSON.stringify({
+            schema:2, phase:'monitoring', company_ids:[30], companies:{}, target_shards:{ '15':0, '30':0 },
+            monitor_shard_cursor:0, catalog_ruleset_version:2, catalog_updated_at:now,
+            cycle_started_at:now, shard_summaries:{}, shards_completed_in_cycle:0,
+            last_cycle_completed_at:0, fair_fight_last_request_at:0, fair_fight_last_success_at:0,
+            fair_fight_last_error_at:0, fair_fight_last_error:'', created_at:now, updated_at:now,
+            last_run:null, summary:null
+        }));
+
+        const result = await roughMuggingAssignments(env, {
+            user_battle_stats:10_000_000, min_fair_fight:1, max_fair_fight:3, limit:20
+        }, now);
+        assert.equal(result.estimate_kind, 'rough');
+        assert.equal(result.targets.length, 1);
+        assert.equal(result.targets[0].id, 15);
+        assert.equal(result.targets[0].fair_fight, 2.33);
+        assert.equal(result.targets[0].confidence, 'rough · recent estimate');
+    });
+
+    it('serves rough assignments only through a live slink.mugging permission session', async () => {
+        const env = createEnv();
+        env.CONTRIBUTION_SERVICE = {
+            async fetch(input, init = {}) {
+                assert.equal(new URL(String(input)).pathname, '/api/internal/permissions/session');
+                assert.equal(init.headers.Authorization, 'Bearer permission-session');
+                assert.equal(init.headers['X-SLINK-Service-Token'], 'contribution-test-token');
+                return Response.json({ ok:true, user_id:999, scopes:['slink.mugging'] });
+            }
+        };
+        const response = await worker.fetch(new Request('https://mugging.example/api/assignments/rough', {
+            method:'POST',
+            headers:{ Authorization:'Bearer permission-session', 'Content-Type':'application/json' },
+            body:JSON.stringify({ user_battle_stats:10_000_000 })
+        }), env);
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.estimate_kind, 'rough');
+        assert.equal(body.user_battle_stats, 10_000_000);
     });
 
     it('keeps the health route read-only and authenticates manual runs', async () => {

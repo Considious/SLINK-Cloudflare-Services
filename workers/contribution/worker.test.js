@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.3-mugging-permissions',
+            version: '0.4.4-permission-introspection',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -536,6 +536,45 @@ describe('SLINK Contribution Service', () => {
         const deferredBody = await deferred.json();
         assert.equal(deferredBody.deferred, true);
         assert.equal(deferredBody.selected_service, 'slink.mug-watch');
+    });
+
+
+    it('resolves a live permission session for internal product workers', async () => {
+        const env = createEnv();
+        const now = Date.now();
+        env.PERMISSIONS_DB.sqlite.prepare(`
+            INSERT INTO user_scope_grants (
+                user_id, scope, source, status, starts_at, expires_at,
+                granted_by, external_reference, note, created_at, updated_at
+            ) VALUES (?, 'slink.mugging', 'test', 'active', ?, NULL, ?, NULL, 'test', ?, ?)
+        `).run(3853023, now - 1, 3853023, now, now);
+        globalThis.fetch = tornFetch({ accessType:'Limited Access', accessLevel:2 });
+        const auth = await worker.fetch(jsonRequest(
+            'https://contribution.example/api/permissions/auth',
+            {
+                api_key:'permission-test-key',
+                terms_accepted:true,
+                terms_version:'2026-08-24',
+                terms_sha256:'72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a',
+                client_name:'Test',
+                client_version:'1'
+            }
+        ), env);
+        const authenticated = await auth.json();
+        assert.equal(auth.status, 200);
+
+        const response = await worker.fetch(new Request(
+            'https://contribution.example/api/internal/permissions/session',
+            { headers:{
+                Authorization:`Bearer ${authenticated.session_token}`,
+                'X-SLINK-Service-Token':SERVICE_TOKEN
+            } }
+        ), env);
+        const body = await response.json();
+        assert.equal(response.status, 200);
+        assert.equal(body.user_id, 3853023);
+        assert.equal(body.scopes.includes('slink.mugging'), true);
+        assert.equal(body.scope_sources['slink.mugging'].includes('individual'), true);
     });
 
 
