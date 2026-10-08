@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.4-permission-introspection',
+            version: '0.4.5-permission-key-validation',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -116,6 +116,27 @@ describe('SLINK Contribution Service', () => {
                 .get().count,
             0
         );
+    });
+
+
+    it('returns Torn validation details before permission resolution', async () => {
+        const env = createEnv();
+        globalThis.fetch = async () => Response.json(
+            { error:{ code:5, error:'Too many requests' } },
+            { status:429 }
+        );
+        const response = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key:'rate-limited-key',
+                terms_accepted:true,
+                terms_version:'2026-08-24',
+                terms_sha256:'72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const body = await response.json();
+        assert.equal(response.status, 429);
+        assert.match(body.error, /Torn API error 5: Too many requests/);
     });
 
 

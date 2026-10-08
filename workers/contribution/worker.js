@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.4-permission-introspection
+ * Release: 0.4.5-permission-key-validation
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.4-permission-introspection';
+const WORKER_VERSION = '0.4.5-permission-key-validation';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -409,14 +409,24 @@ async function validateTornIdentity(apiKey) {
             'Authorization': `ApiKey ${apiKey}`,
             'Accept': 'application/json',
             'User-Agent': 'SLINK-Permission-Service'
-        }
+        },
+        cache: 'no-store'
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || data?.error) {
+        const tornCode = Number(data?.error?.code);
+        const tornMessage = String(
+            data?.error?.error ||
+            data?.error?.message ||
+            ''
+        ).trim();
+        const detail = Number.isFinite(tornCode) && tornCode > 0
+            ? `Torn API error ${tornCode}${tornMessage ? `: ${tornMessage}` : ''}`
+            : tornMessage || `Torn API HTTP ${response.status || 'error'}`;
         const error = new RequestValidationError(
-            'Torn could not validate this API key.'
+            `Torn could not validate this API key. ${detail}`
         );
-        error.status = 401;
+        error.status = response.status === 429 || tornCode === 5 ? 429 : 401;
         throw error;
     }
     const userId = positiveInteger(data?.info?.user?.id);
