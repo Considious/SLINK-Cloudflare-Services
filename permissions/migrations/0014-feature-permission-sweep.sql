@@ -63,6 +63,7 @@ SELECT
     'Included regular SLINK feature access for current Slinky members',
     unixepoch() * 1000, unixepoch() * 1000
 FROM regular_feature_scopes
+WHERE 1
 ON CONFLICT(faction_id, scope) DO UPDATE SET
     status = 'active',
     starts_at = excluded.starts_at,
