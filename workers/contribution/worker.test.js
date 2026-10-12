@@ -690,7 +690,9 @@ function createEnv() {
         '0009-market-watch-tiers.sql',
         '0010-dragons-breath-theme.sql',
         '0011-mugging-contribution-keys.sql',
-        '0012-mugging-permission.sql'
+        '0012-mugging-permission.sql',
+        '0013-quality-of-life-permissions.sql',
+        '0014-feature-permission-sweep.sql'
     ]) {
         sqlite.exec(readFileSync(
             new URL(`../../permissions/migrations/${migration}`, import.meta.url),

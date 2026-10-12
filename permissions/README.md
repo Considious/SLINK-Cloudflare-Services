@@ -161,3 +161,17 @@ expiration. New authentication attempts use the current database state.
 The Leveling Worker reads this database only when authenticating a session, not
 on every polling request. Active paid grants cap the signed session expiration
 at the purchase expiration; all other sessions last no more than 12 hours.
+
+
+## Regular feature permission sweep (0014)
+
+Migration `0014-feature-permission-sweep.sql` adds explicit scopes for the
+previously ungated Bounties, Player Stats, Target List, Merits, $1 Bazaars,
+Racing, and Abroad Stocks modules. It also permanently grants the regular
+feature set to faction `46978`.
+
+The automatic faction grant intentionally excludes Market Watch tiers,
+`admin.*`, `slink.war.officer`, legacy scopes, and paid theme entitlements.
+Organized Crime Travel Safety is a built-in background safeguard and no longer
+requires a permission. A valid `admin.*` or `*` grant overrides every
+feature gate regardless of which user received that administrative grant.

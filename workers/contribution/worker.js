@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.5-permission-key-validation
+ * Release: 0.4.6-permission-sweep
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.5-permission-key-validation';
+const WORKER_VERSION = '0.4.6-permission-sweep';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -23,7 +23,6 @@ const DATA_TERMS_SUMMARY =
     'in your browser.';
 const PERMISSION_SESSION_SECONDS = 2 * 60 * 60;
 const ADMIN_SCOPE = 'admin.*';
-const SOLE_ADMIN_USER_ID = 3853023;
 const TERMS_VERSION = '2026-08-23';
 const TERMS_EFFECTIVE_AT = '2026-08-23';
 const TERMS_URL =
@@ -336,12 +335,6 @@ function scopeMatches(grantedScope, requiredScope) {
 
 
 function hasScope(session, requiredScope) {
-    if (
-        (requiredScope === ADMIN_SCOPE || String(requiredScope).startsWith('admin.')) &&
-        Number(session?.user_id) !== SOLE_ADMIN_USER_ID
-    ) {
-        return false;
-    }
     return Array.isArray(session?.scopes) &&
         session.scopes.some(scope => scopeMatches(scope, requiredScope));
 }
@@ -368,7 +361,6 @@ async function loadPermissions(env, userId, factionId, now) {
     for (const row of result.results || []) {
         const scope = String(row?.scope || '').trim();
         if (!scope) continue;
-        if (scopeMatches(scope, ADMIN_SCOPE) && userId !== SOLE_ADMIN_USER_ID) continue;
         const expiration = row.expires_at === null || row.expires_at === undefined
             ? null
             : Number(row.expires_at);
@@ -397,7 +389,7 @@ async function loadPermissions(env, userId, factionId, now) {
     return {
         scopes,
         scopeSources,
-        roles: scopes.includes(ADMIN_SCOPE) ? ['admin'] : ['member'],
+        roles: scopes.some(scope => scopeMatches(scope, ADMIN_SCOPE)) ? ['admin'] : ['member'],
         expiresAt: Number.isFinite(expiresAt) ? expiresAt : null
     };
 }
@@ -624,8 +616,7 @@ async function assignableScopes(env) {
 
 
 function adminAllowed(session) {
-    return Number(session?.user_id) === SOLE_ADMIN_USER_ID &&
-        hasScope(session, ADMIN_SCOPE);
+    return hasScope(session, ADMIN_SCOPE);
 }
 
 
