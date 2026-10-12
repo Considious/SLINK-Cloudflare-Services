@@ -209,13 +209,19 @@ describe('SLINK Mugging Intelligence Worker', () => {
                     id:30, name:'Unavailable', status_state:'Hospital',
                     status_until:Math.floor((now + 60_000) / 1000),
                     battle_stats_estimate:4_000_000
+                },
+                '45':{
+                    id:45, name:'Far Above Maximum', status_state:'Okay',
+                    status_until:0, priority_multiplier:1,
+                    battle_stats_estimate:100_000_000, battle_stats_source:'fair_fight',
+                    battle_stats_checked_at:now - 86_400_000
                 }
             },
             updated_at:now
         };
         await env.MUGGING_BUCKET.put('mugging/state/v2/targets/shard-00.json', JSON.stringify(shard));
         await env.MUGGING_BUCKET.put('mugging/state/v2/index.json', JSON.stringify({
-            schema:2, phase:'monitoring', company_ids:[30], companies:{}, target_shards:{ '15':0, '30':0 },
+            schema:2, phase:'monitoring', company_ids:[30], companies:{}, target_shards:{ '15':0, '30':0, '45':0 },
             monitor_shard_cursor:0, catalog_ruleset_version:2, catalog_updated_at:now,
             cycle_started_at:now, shard_summaries:{}, shards_completed_in_cycle:0,
             last_cycle_completed_at:0, fair_fight_last_request_at:0, fair_fight_last_success_at:0,
@@ -231,6 +237,7 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(result.targets[0].id, 15);
         assert.equal(result.targets[0].fair_fight, 2.33);
         assert.equal(result.targets[0].confidence, 'rough · recent estimate');
+        assert.equal(result.targets.some(target => target.id === 45), false, 'max FF 3 must reject uncapped estimates above 3');
     });
 
     it('schedules ten active or five inactive contributor checks without known-timer waste', async () => {

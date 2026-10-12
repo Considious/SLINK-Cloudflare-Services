@@ -6,7 +6,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.6.0-contributor-sync';
+const WORKER_VERSION = '0.6.1-hard-ff-ceiling';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();

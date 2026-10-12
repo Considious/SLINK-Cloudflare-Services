@@ -534,7 +534,10 @@ export function roughFairFightValue(userBattleStats, targetBattleStats) {
     const own = finitePositive(userBattleStats);
     const opponent = finitePositive(targetBattleStats);
     if (own === null || opponent === null) return null;
-    return Number(Math.min(3, Math.max(1, 1 + (8 / 3) * (opponent / own))).toFixed(2));
+    // Keep the estimate uncapped so a configured maximum of 3 is a real
+    // ceiling. Capping every stronger opponent at 3 incorrectly made "3"
+    // behave like an unlimited 3+ bucket.
+    return Number(Math.max(1, 1 + (8 / 3) * (opponent / own)).toFixed(2));
 }
 
 function assignmentConfidence(target, now) {
