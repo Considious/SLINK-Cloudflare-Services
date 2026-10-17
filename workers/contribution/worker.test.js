@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.5-permission-key-validation',
+            version: '0.4.6-permission-sweep',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -673,6 +673,67 @@ describe('SLINK Contribution Service', () => {
         assert.equal(body.configured_capacity, 75);
         assert.equal(body.available_capacity, 75);
     });
+
+    it('backs up and restores PDA settings without accepting credentials', async () => {
+        const env = createEnv();
+        globalThis.fetch = tornFetch({ accessType:'Limited Access', accessLevel:2 });
+        const authenticated = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key:'temporary-auth-only-key',
+                terms_accepted:true,
+                terms_version:'2026-08-24',
+                terms_sha256:'72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const session = await authenticated.json();
+        const backupRequest = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/user-backup',
+                {
+                    backup:{
+                        schema:1,
+                        settings:{ market:{ watches:[{ itemId:206, maximumPrice:500000 }] } },
+                        targetList:{ '123':{ playerId:123, name:'Test Target' } }
+                    }
+                },
+                { Authorization:`Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(backupRequest.status, 200);
+        assert.equal(env.USER_BACKUPS.objects.size, 1);
+        assert.ok(![...env.USER_BACKUPS.objects.values()][0].includes('temporary-auth-only-key'));
+
+        const restored = await worker.fetch(
+            new Request('https://contribution.example/api/user-backup', {
+                headers:{ Authorization:`Bearer ${session.session_token}` }
+            }),
+            env
+        );
+        const restoredBody = await restored.json();
+        assert.equal(restored.status, 200);
+        assert.equal(restoredBody.backup.settings.market.watches[0].itemId, 206);
+        assert.equal(restoredBody.backup.targetList['123'].name, 'Test Target');
+
+        const rejected = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/user-backup',
+                {
+                    backup:{
+                        schema:1,
+                        settings:{ apiKey:'must-never-be-uploaded' },
+                        targetList:{}
+                    }
+                },
+                { Authorization:`Bearer ${session.session_token}` }
+            ),
+            env
+        );
+        assert.equal(rejected.status, 400);
+        assert.match((await rejected.json()).error, /cannot contain API keys/i);
+    });
+
 });
 
 
@@ -701,6 +762,7 @@ function createEnv() {
     }
     return {
         PERMISSIONS_DB: new D1DatabaseAdapter(sqlite),
+        USER_BACKUPS: new R2BucketAdapter(),
         API_KEY_ENCRYPTION_KEY: ENCRYPTION_KEY,
         CONTRIBUTION_SERVICE_TOKEN: SERVICE_TOKEN
     };
@@ -762,6 +824,26 @@ function tornFetch({ accessType, accessLevel }) {
         }
         return Response.json({ error: { code: 404, error: 'Not found' } }, { status: 404 });
     };
+}
+
+
+class R2BucketAdapter {
+    constructor() {
+        this.objects = new Map();
+    }
+
+    async put(key, value) {
+        this.objects.set(String(key), String(value));
+    }
+
+    async get(key) {
+        const value = this.objects.get(String(key));
+        if (value === undefined) return null;
+        return {
+            async text() { return value; },
+            async json() { return JSON.parse(value); }
+        };
+    }
 }
 
 

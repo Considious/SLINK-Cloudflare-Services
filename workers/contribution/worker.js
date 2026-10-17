@@ -19,8 +19,9 @@ const DATA_TERMS_SUMMARY =
     'Your Torn API key is sent to SLINK only during authentication to verify ' +
     'your identity and current faction. It is not stored by the permission ' +
     'service. Feature grants are read from the shared SLINK permissions ' +
-    'database. Private ADHD timers, purchases, settings, and API results stay ' +
-    'in your browser.';
+    'database. Private ADHD timers, purchases, and API results stay in your ' +
+    'browser. If you enable PDA cloud backup, SLINK stores only settings and ' +
+    'saved targets; API keys and login sessions are excluded.';
 const PERMISSION_SESSION_SECONDS = 2 * 60 * 60;
 const ADMIN_SCOPE = 'admin.*';
 const TERMS_VERSION = '2026-08-23';
@@ -45,6 +46,8 @@ const TERMS_SUMMARY =
 
 const ENCRYPTION_VERSION = 1;
 const MAX_JSON_BODY_BYTES = 32 * 1024;
+const MAX_USER_BACKUP_BYTES = 256 * 1024;
+const USER_BACKUP_SCHEMA = 1;
 const MAX_JOB_RESULT_BYTES = 128 * 1024;
 const MAX_SCHEDULED_JOBS = 10;
 const MAX_JOB_ATTEMPTS = 5;
@@ -102,6 +105,14 @@ const worker = {
             request.method === 'GET'
         ) {
             return handleInternalPermissionSession(request, env);
+        }
+
+        if (url.pathname === '/api/user-backup' && request.method === 'POST') {
+            return handleUserBackupWrite(request, env);
+        }
+
+        if (url.pathname === '/api/user-backup' && request.method === 'GET') {
+            return handleUserBackupRead(request, env);
         }
 
         if (url.pathname === '/api/admin/scopes') {
@@ -593,6 +604,163 @@ async function permissionSession(request, env) {
     const authorization = request.headers.get('Authorization') || '';
     if (!authorization.startsWith('Bearer ')) return null;
     return verifyPermissionToken(authorization.slice(7).trim(), env);
+}
+
+
+function userBackupKey(userId) {
+    return `user-backups/${positiveInteger(userId)}/pda/latest.json`;
+}
+
+
+function backupRecord(value) {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value
+        : null;
+}
+
+
+function validatedBackupValue(value, depth = 0) {
+    if (depth > 20) {
+        throw new RequestValidationError('Backup data is nested too deeply.');
+    }
+    if (
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+    ) return value;
+    if (Array.isArray(value)) {
+        if (value.length > 10_000) {
+            throw new RequestValidationError('Backup data contains too many entries.');
+        }
+        return value.map(entry => validatedBackupValue(entry, depth + 1));
+    }
+    if (!backupRecord(value)) {
+        throw new RequestValidationError('Backup data contains an unsupported value.');
+    }
+    const result = {};
+    const entries = Object.entries(value);
+    if (entries.length > 10_000) {
+        throw new RequestValidationError('Backup data contains too many fields.');
+    }
+    const sensitive = /^(?:api_?key|ff_?key|session|sessions|token|tokens|secret|secrets|password|management_?token)$/i;
+    for (const [key, entry] of entries) {
+        if (sensitive.test(key)) {
+            throw new RequestValidationError(
+                'Backups cannot contain API keys, secrets, or login sessions.'
+            );
+        }
+        result[key] = validatedBackupValue(entry, depth + 1);
+    }
+    return result;
+}
+
+
+async function readUserBackupBody(request) {
+    const length = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(length) && length > MAX_USER_BACKUP_BYTES) {
+        throw new RequestValidationError('Backup is too large.');
+    }
+    const text = await request.text();
+    if (textEncoder.encode(text).byteLength > MAX_USER_BACKUP_BYTES) {
+        throw new RequestValidationError('Backup is too large.');
+    }
+    try {
+        return JSON.parse(text || '{}');
+    } catch {
+        throw new RequestValidationError('Backup must be valid JSON.');
+    }
+}
+
+
+async function handleUserBackupWrite(request, env) {
+    try {
+        const session = await permissionSession(request, env);
+        if (!session) {
+            return jsonResponse({
+                ok:false,
+                error:'A valid SLINK permission session is required.'
+            }, 401);
+        }
+        if (!env.USER_BACKUPS) {
+            return jsonResponse({
+                ok:false,
+                error:'SLINK user backup storage is not configured.'
+            }, 503);
+        }
+        const body = await readUserBackupBody(request);
+        const source = backupRecord(body?.backup);
+        if (
+            !source ||
+            Number(source.schema) !== USER_BACKUP_SCHEMA ||
+            !backupRecord(source.settings) ||
+            !backupRecord(source.targetList)
+        ) {
+            throw new RequestValidationError('Backup schema is invalid.');
+        }
+        const savedAt = Date.now();
+        const backup = {
+            schema:USER_BACKUP_SCHEMA,
+            client:'pda',
+            savedAt,
+            settings:validatedBackupValue(source.settings),
+            targetList:validatedBackupValue(source.targetList)
+        };
+        const serialized = JSON.stringify(backup);
+        if (textEncoder.encode(serialized).byteLength > MAX_USER_BACKUP_BYTES) {
+            throw new RequestValidationError('Backup is too large.');
+        }
+        await env.USER_BACKUPS.put(userBackupKey(session.user_id), serialized, {
+            httpMetadata:{ contentType:'application/json' },
+            customMetadata:{
+                userId:String(session.user_id),
+                savedAt:String(savedAt),
+                schema:String(USER_BACKUP_SCHEMA)
+            }
+        });
+        return jsonResponse({ ok:true, saved_at:savedAt, schema:USER_BACKUP_SCHEMA });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function handleUserBackupRead(request, env) {
+    try {
+        const session = await permissionSession(request, env);
+        if (!session) {
+            return jsonResponse({
+                ok:false,
+                error:'A valid SLINK permission session is required.'
+            }, 401);
+        }
+        if (!env.USER_BACKUPS) {
+            return jsonResponse({
+                ok:false,
+                error:'SLINK user backup storage is not configured.'
+            }, 503);
+        }
+        const object = await env.USER_BACKUPS.get(userBackupKey(session.user_id));
+        if (!object) {
+            return jsonResponse({ ok:false, error:'No SLINK backup exists yet.' }, 404);
+        }
+        const backup = JSON.parse(await object.text());
+        if (
+            Number(backup?.schema) !== USER_BACKUP_SCHEMA ||
+            !backupRecord(backup?.settings) ||
+            !backupRecord(backup?.targetList)
+        ) {
+            return jsonResponse({ ok:false, error:'The saved SLINK backup is invalid.' }, 500);
+        }
+        return jsonResponse({
+            ok:true,
+            saved_at:Number(backup.savedAt) || 0,
+            schema:USER_BACKUP_SCHEMA,
+            backup
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
 }
 
 

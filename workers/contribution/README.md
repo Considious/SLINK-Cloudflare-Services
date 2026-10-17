@@ -46,6 +46,7 @@ precedence over `slink.level` without changing the key vault.
    in the existing `slink-permissions` D1 SQL console, in that order.
 2. Create a Worker named `slinkcontributionworker` and paste `worker.js` into it.
 3. Bind the existing `slink-permissions` database as `PERMISSIONS_DB`.
+   Bind the existing `slink-mugging-data` R2 bucket as `USER_BACKUPS`; PDA backups use only the isolated `user-backups/` prefix.
 4. Add these encrypted Worker secrets in **Settings > Variables and Secrets**:
    - `API_KEY_ENCRYPTION_KEY`: 32 cryptographically random bytes encoded as
      base64url. Keep this backed up securely; losing it makes active donations
@@ -77,6 +78,8 @@ invalidate existing donations.
 - `GET /api/terms` — fingerprinted current donation terms.
 - `GET /api/permissions/terms` — shared SLINK API/data terms.
 - `POST /api/permissions/auth` — verify identity and return signed feature scopes.
+- `POST /api/user-backup` — store the authenticated user's PDA settings and target list in R2. API keys and sessions are rejected.
+- `GET /api/user-backup` — restore the authenticated user's latest PDA settings backup.
 - `GET /api/admin/scopes` — list grantable scopes for the sole administrator.
 - `GET /api/admin/users/:id/permissions` — inspect direct and inherited grants.
 - `POST /api/admin/users/:id/permissions` — add/extend only the selected grants,
