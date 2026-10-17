@@ -694,7 +694,8 @@ describe('SLINK Contribution Service', () => {
                     backup:{
                         schema:1,
                         settings:{ market:{ watches:[{ itemId:206, maximumPrice:500000 }] } },
-                        targetList:{ '123':{ playerId:123, name:'Test Target' } }
+                        targetList:{ '123':{ playerId:123, name:'Test Target' } },
+                        uiState:{ page:'combat', combatTab:'targetList', minimizedMode:'bar' }
                     }
                 },
                 { Authorization:`Bearer ${session.session_token}` }
@@ -715,6 +716,7 @@ describe('SLINK Contribution Service', () => {
         assert.equal(restored.status, 200);
         assert.equal(restoredBody.backup.settings.market.watches[0].itemId, 206);
         assert.equal(restoredBody.backup.targetList['123'].name, 'Test Target');
+        assert.equal(restoredBody.backup.uiState.combatTab, 'targetList');
 
         const rejected = await worker.fetch(
             jsonRequest(

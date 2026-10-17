@@ -704,7 +704,10 @@ async function handleUserBackupWrite(request, env) {
             client:'pda',
             savedAt,
             settings:validatedBackupValue(source.settings),
-            targetList:validatedBackupValue(source.targetList)
+            targetList:validatedBackupValue(source.targetList),
+            uiState:backupRecord(source.uiState)
+                ? validatedBackupValue(source.uiState)
+                : {}
         };
         const serialized = JSON.stringify(backup);
         if (textEncoder.encode(serialized).byteLength > MAX_USER_BACKUP_BYTES) {
