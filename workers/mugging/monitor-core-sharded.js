@@ -271,6 +271,7 @@ async function mergeScansIntoShards(bucket, index, dirtyShards, scanResults, now
             const isMuggedNow = core.isMugHospital(employee);
             const mugged = index.phase === 'monitoring' && isMuggedNow && signature !== target.last_mug_signature;
             target.name = employee.name || target.name;
+            target.level = Math.max(0, Number(employee.level) || Number(target.level) || 0);
             target.company_id = companyId;
             target.company_name = company.name || 'Company ' + companyId;
             target.company_type = company.type_name || '';
@@ -437,6 +438,7 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
         targets:candidates.slice(0, limit).map(row => ({
             id:row.id,
             name:String(row.target?.name || `Player ${row.id}`).slice(0, 80),
+            level:Math.max(0, Math.trunc(Number(row.target?.level) || 0)),
             company_id:positiveInteger(row.target?.company_id) || 0,
             company_name:String(row.target?.company_name || ''),
             company_type:String(row.target?.company_type || ''),

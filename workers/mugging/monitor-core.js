@@ -419,6 +419,7 @@ function normalizeCompanyEmployees(payload) {
         return {
             id,
             name:String(row?.name ?? row?.user?.name ?? `Player ${id}`).trim().slice(0, 80),
+            level:Math.max(0, Math.trunc(Number(row?.level ?? row?.user?.level) || 0)),
             position:String(row?.position ?? row?.position_name ?? '').trim().slice(0, 100),
             status_state:String(status?.state ?? row?.state ?? 'Unknown').trim().slice(0, 50),
             status_description:String(status?.description ?? status?.details ?? row?.status_description ?? '').trim().slice(0, 500),
@@ -465,6 +466,7 @@ function mergeCompanyScan(state, result, now) {
         const isMuggedNow = isMugHospital(employee);
         const mugged = state.phase === 'monitoring' && isMuggedNow && signature !== target.last_mug_signature;
         target.name = employee.name || target.name;
+        target.level = Math.max(0, Number(employee.level) || Number(target.level) || 0);
         target.company_id = companyId;
         target.company_name = company.name || `Company ${companyId}`;
         target.company_type = company.type_name || '';

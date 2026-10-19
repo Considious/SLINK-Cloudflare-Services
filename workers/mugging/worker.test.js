@@ -623,3 +623,8 @@ class D1StatementAdapter {
     }
 }
 
+
+const levelCoreSource = readFileSync(new URL('./monitor-core.js', import.meta.url), 'utf8');
+const levelShardedSource = readFileSync(new URL('./monitor-core-sharded.js', import.meta.url), 'utf8');
+assert.match(levelCoreSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\?\.level/);
+assert.match(levelShardedSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\.target\?\.level/);
