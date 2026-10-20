@@ -8,7 +8,7 @@
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.7-faction-onboarding';
+const WORKER_VERSION = '0.4.8-officer-armory-oc';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -24,6 +24,11 @@ const DATA_TERMS_SUMMARY =
     'saved targets; API keys and login sessions are excluded.';
 const PERMISSION_SESSION_SECONDS = 2 * 60 * 60;
 const ADMIN_SCOPE = 'admin.*';
+const OFFICER_MANAGED_SCOPES = Object.freeze([
+    'slink.war.officer',
+    'slink.officer.armory',
+    'slink.officer.oc'
+]);
 const TERMS_VERSION = '2026-08-23';
 const TERMS_EFFECTIVE_AT = '2026-08-23';
 const TERMS_URL =
@@ -161,6 +166,17 @@ const worker = {
                 request,
                 env,
                 positiveInteger(officerRolesMatch[1])
+            );
+        }
+
+        const officerAccessMatch = url.pathname.match(
+            /^\/api\/admin\/factions\/(\d+)\/officer-access$/
+        );
+        if (officerAccessMatch) {
+            return handleAdminOfficerAccess(
+                request,
+                env,
+                positiveInteger(officerAccessMatch[1])
             );
         }
 
@@ -408,11 +424,16 @@ async function loadPermissions(
           AND starts_at <= ?3
           AND (expires_at IS NULL OR expires_at > ?3)
         UNION ALL
-        SELECT 'slink.war.officer' AS scope, NULL AS expires_at,
-               'faction_role' AS grant_source
-        FROM faction_officer_role_grants
+        SELECT scope, NULL AS expires_at, 'faction_role' AS grant_source
+        FROM faction_position_scope_grants
         WHERE faction_id = ?2
-          AND role_name_normalized = ?4
+          AND position_name_normalized = ?4
+          AND status = 'active'
+        UNION ALL
+        SELECT scope, NULL AS expires_at, 'faction_member' AS grant_source
+        FROM faction_member_scope_grants
+        WHERE faction_id = ?2
+          AND user_id = ?1
           AND status = 'active'
         ORDER BY scope ASC
     `).bind(
@@ -437,7 +458,7 @@ async function loadPermissions(
                 ? null
                 : Math.max(Number(current.expiresAt) || 0, expiration);
         }
-        if (['individual', 'faction', 'faction_role'].includes(row.grant_source)) {
+        if (['individual', 'faction', 'faction_role', 'faction_member'].includes(row.grant_source)) {
             current.sources.add(row.grant_source);
         }
         grants.set(scope, current);
@@ -446,12 +467,16 @@ async function loadPermissions(
     const scopeSources = Object.fromEntries(scopes.map(scope => {
         const sources = grants.get(scope).sources;
         const direct = sources.has('individual');
-        const inherited = sources.has('faction') || sources.has('faction_role');
+        const inherited = sources.has('faction') ||
+            sources.has('faction_role') ||
+            sources.has('faction_member');
         return [scope, direct && inherited
             ? 'both'
-            : sources.has('faction_role')
-                ? 'faction_role'
-                : sources.has('faction') ? 'faction' : 'individual'];
+            : sources.has('faction_member')
+                ? 'faction_member'
+                : sources.has('faction_role')
+                    ? 'faction_role'
+                    : sources.has('faction') ? 'faction' : 'individual'];
     }));
     const finiteExpirations = [...grants.values()]
         .map(grant => grant.expiresAt)
@@ -1278,6 +1303,133 @@ async function handleAdminOfficerRoles(request, env, factionId) {
         }
         await env.PERMISSIONS_DB.batch(statements);
         return jsonResponse(await officerRolesResponse(env, factionId));
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function officerAccessResponse(env, factionId) {
+    const [positionRows, memberRows] = await Promise.all([
+        env.PERMISSIONS_DB.prepare(`
+            SELECT scope, position_name AS name, status
+            FROM faction_position_scope_grants
+            WHERE faction_id = ?1
+              AND scope IN ('slink.war.officer', 'slink.officer.armory', 'slink.officer.oc')
+            ORDER BY scope, position_name
+        `).bind(factionId).all(),
+        env.PERMISSIONS_DB.prepare(`
+            SELECT scope, user_id AS id, user_name AS name, status
+            FROM faction_member_scope_grants
+            WHERE faction_id = ?1
+              AND scope IN ('slink.war.officer', 'slink.officer.armory', 'slink.officer.oc')
+            ORDER BY scope, user_name, user_id
+        `).bind(factionId).all()
+    ]);
+    const assignments = Object.fromEntries(OFFICER_MANAGED_SCOPES.map(scope => [
+        scope,
+        { roles:[], users:[] }
+    ]));
+    for (const row of positionRows.results || []) {
+        if (row.status === 'active' && assignments[row.scope]) {
+            assignments[row.scope].roles.push(String(row.name || ''));
+        }
+    }
+    for (const row of memberRows.results || []) {
+        if (row.status === 'active' && assignments[row.scope]) {
+            assignments[row.scope].users.push({
+                id:positiveInteger(row.id),
+                name:String(row.name || ('Player ' + row.id))
+            });
+        }
+    }
+    return { ok:true, faction_id:factionId, assignments };
+}
+
+
+async function handleAdminOfficerAccess(request, env, factionId) {
+    if (!factionId) {
+        return jsonResponse({ ok:false, error:'A valid Torn faction ID is required.' }, 400);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({ ok:false, error:'admin.* permission is required.' }, 403);
+    }
+    try {
+        requireDatabase(env);
+        if (request.method === 'GET') {
+            return jsonResponse(await officerAccessResponse(env, factionId));
+        }
+        if (request.method !== 'POST') {
+            return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+        }
+        const body = await readJsonBody(request);
+        const assignments = body?.assignments;
+        if (!assignments || typeof assignments !== 'object' || Array.isArray(assignments)) {
+            throw new RequestValidationError('assignments must be an object keyed by officer scope.');
+        }
+        const now = Date.now();
+        const actor = positiveInteger(session.user_id);
+        const statements = [];
+        for (const scope of OFFICER_MANAGED_SCOPES) {
+            const assignment = assignments[scope] || {};
+            const roles = new Map();
+            for (const value of Array.isArray(assignment.roles) ? assignment.roles : []) {
+                const name = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+                const normalized = normalizeFactionRole(name);
+                if (name && normalized) roles.set(normalized, name);
+            }
+            const users = new Map();
+            for (const value of Array.isArray(assignment.users) ? assignment.users : []) {
+                const id = positiveInteger(value?.id ?? value);
+                if (!id) continue;
+                const name = String(value?.name || ('Player ' + id)).trim().slice(0, 80);
+                users.set(id, name || ('Player ' + id));
+            }
+            if (roles.size > 50 || users.size > 100) {
+                throw new RequestValidationError('Each scope supports up to 50 roles and 100 named members.');
+            }
+            statements.push(
+                env.PERMISSIONS_DB.prepare(`
+                    UPDATE faction_position_scope_grants
+                    SET status = 'revoked', updated_at = ?3
+                    WHERE faction_id = ?1 AND scope = ?2
+                `).bind(factionId, scope, now),
+                env.PERMISSIONS_DB.prepare(`
+                    UPDATE faction_member_scope_grants
+                    SET status = 'revoked', updated_at = ?3
+                    WHERE faction_id = ?1 AND scope = ?2
+                `).bind(factionId, scope, now)
+            );
+            for (const [normalized, name] of roles) {
+                statements.push(env.PERMISSIONS_DB.prepare(`
+                    INSERT INTO faction_position_scope_grants(
+                        faction_id, position_name, position_name_normalized, scope,
+                        status, granted_by, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?6)
+                    ON CONFLICT(faction_id, position_name_normalized, scope) DO UPDATE SET
+                        position_name = excluded.position_name,
+                        status = 'active',
+                        granted_by = excluded.granted_by,
+                        updated_at = excluded.updated_at
+                `).bind(factionId, name, normalized, scope, actor, now));
+            }
+            for (const [id, name] of users) {
+                statements.push(env.PERMISSIONS_DB.prepare(`
+                    INSERT INTO faction_member_scope_grants(
+                        faction_id, user_id, user_name, scope, status,
+                        granted_by, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?6)
+                    ON CONFLICT(faction_id, user_id, scope) DO UPDATE SET
+                        user_name = excluded.user_name,
+                        status = 'active',
+                        granted_by = excluded.granted_by,
+                        updated_at = excluded.updated_at
+                `).bind(factionId, id, name, scope, actor, now));
+            }
+        }
+        await env.PERMISSIONS_DB.batch(statements);
+        return jsonResponse(await officerAccessResponse(env, factionId));
     } catch (error) {
         return requestErrorResponse(error);
     }
