@@ -1,14 +1,14 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.6-permission-sweep
+ * Release: 0.4.7-faction-onboarding
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.6-permission-sweep';
+const WORKER_VERSION = '0.4.7-faction-onboarding';
 const DATA_TERMS_VERSION = '2026-08-24';
 const DATA_TERMS_SHA256 =
     '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
@@ -150,6 +150,36 @@ const worker = {
                 request,
                 env,
                 positiveInteger(factionPermissionMatch[1])
+            );
+        }
+
+        const officerRolesMatch = url.pathname.match(
+            /^\/api\/admin\/factions\/(\d+)\/officer-roles$/
+        );
+        if (officerRolesMatch) {
+            return handleAdminOfficerRoles(
+                request,
+                env,
+                positiveInteger(officerRolesMatch[1])
+            );
+        }
+
+        if (url.pathname === '/api/faction/onboarding') {
+            return handleFactionOnboarding(request, env);
+        }
+
+        if (url.pathname === '/api/faction/onboarding/sync') {
+            return handleFactionOnboardingSync(request, env);
+        }
+
+        const onboardingVerifyMatch = url.pathname.match(
+            /^\/api\/faction\/onboarding\/(\d+)\/verify$/
+        );
+        if (onboardingVerifyMatch) {
+            return handleFactionOnboardingVerify(
+                request,
+                env,
+                positiveInteger(onboardingVerifyMatch[1])
             );
         }
 
@@ -351,7 +381,18 @@ function hasScope(session, requiredScope) {
 }
 
 
-async function loadPermissions(env, userId, factionId, now) {
+function normalizeFactionRole(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 100);
+}
+
+
+async function loadPermissions(
+    env,
+    userId,
+    factionId,
+    now,
+    factionPosition = ''
+) {
     const result = await env.PERMISSIONS_DB.prepare(`
         SELECT scope, expires_at, 'individual' AS grant_source
         FROM user_scope_grants
@@ -366,8 +407,20 @@ async function loadPermissions(env, userId, factionId, now) {
           AND status = 'active'
           AND starts_at <= ?3
           AND (expires_at IS NULL OR expires_at > ?3)
+        UNION ALL
+        SELECT 'slink.war.officer' AS scope, NULL AS expires_at,
+               'faction_role' AS grant_source
+        FROM faction_officer_role_grants
+        WHERE faction_id = ?2
+          AND role_name_normalized = ?4
+          AND status = 'active'
         ORDER BY scope ASC
-    `).bind(userId, factionId, now).all();
+    `).bind(
+        userId,
+        factionId,
+        now,
+        normalizeFactionRole(factionPosition)
+    ).all();
     const grants = new Map();
     for (const row of result.results || []) {
         const scope = String(row?.scope || '').trim();
@@ -375,13 +428,16 @@ async function loadPermissions(env, userId, factionId, now) {
         const expiration = row.expires_at === null || row.expires_at === undefined
             ? null
             : Number(row.expires_at);
-        const current = grants.get(scope) || { expiresAt:expiration, sources:new Set() };
+        const current = grants.get(scope) || {
+            expiresAt:expiration,
+            sources:new Set()
+        };
         if (current.expiresAt !== null) {
             current.expiresAt = expiration === null
                 ? null
                 : Math.max(Number(current.expiresAt) || 0, expiration);
         }
-        if (row.grant_source === 'individual' || row.grant_source === 'faction') {
+        if (['individual', 'faction', 'faction_role'].includes(row.grant_source)) {
             current.sources.add(row.grant_source);
         }
         grants.set(scope, current);
@@ -389,33 +445,49 @@ async function loadPermissions(env, userId, factionId, now) {
     const scopes = [...grants.keys()].sort();
     const scopeSources = Object.fromEntries(scopes.map(scope => {
         const sources = grants.get(scope).sources;
-        return [scope, sources.has('individual') && sources.has('faction')
+        const direct = sources.has('individual');
+        const inherited = sources.has('faction') || sources.has('faction_role');
+        return [scope, direct && inherited
             ? 'both'
-            : sources.has('faction') ? 'faction' : 'individual'];
+            : sources.has('faction_role')
+                ? 'faction_role'
+                : sources.has('faction') ? 'faction' : 'individual'];
     }));
     const finiteExpirations = [...grants.values()]
         .map(grant => grant.expiresAt)
         .filter(Number.isFinite);
-    const expiresAt = finiteExpirations.length ? Math.min(...finiteExpirations) : null;
+    const expiresAt = finiteExpirations.length
+        ? Math.min(...finiteExpirations)
+        : null;
     return {
         scopes,
         scopeSources,
-        roles: scopes.some(scope => scopeMatches(scope, ADMIN_SCOPE)) ? ['admin'] : ['member'],
+        roles: scopes.some(scope => scopeMatches(scope, ADMIN_SCOPE))
+            ? ['admin']
+            : scopes.some(scope => scopeMatches(scope, 'slink.war.officer'))
+                ? ['officer']
+                : ['member'],
         expiresAt: Number.isFinite(expiresAt) ? expiresAt : null
     };
 }
 
-async function validateTornIdentity(apiKey) {
-    const response = await fetch('https://api.torn.com/v2/key/info', {
-        method: 'GET',
-        headers: {
-            'Authorization': `ApiKey ${apiKey}`,
-            'Accept': 'application/json',
-            'User-Agent': 'SLINK-Permission-Service'
+async function tornIdentityRequest(path, apiKey) {
+    const response = await fetch(`https://api.torn.com${path}`, {
+        method:'GET',
+        headers:{
+            'Authorization':`ApiKey ${apiKey}`,
+            'Accept':'application/json',
+            'User-Agent':'SLINK-Permission-Service'
         },
-        cache: 'no-store'
+        cache:'no-store'
     });
     const data = await response.json().catch(() => null);
+    return { response, data };
+}
+
+
+async function validateTornIdentity(apiKey) {
+    const { response, data } = await tornIdentityRequest('/v2/key/info', apiKey);
     if (!response.ok || data?.error) {
         const tornCode = Number(data?.error?.code);
         const tornMessage = String(
@@ -442,7 +514,32 @@ async function validateTornIdentity(apiKey) {
     if (!userId || !Number.isInteger(factionId) || factionId < 0) {
         throw new RequestValidationError('Torn returned an invalid identity.');
     }
-    return { userId, userName, factionId };
+    let factionPosition = String(
+        data?.info?.user?.faction?.position ||
+        data?.info?.user?.faction_position ||
+        ''
+    ).trim().slice(0, 100);
+    if (factionId > 0 && !factionPosition) {
+        try {
+            const profileResult = await tornIdentityRequest('/v2/user/basic', apiKey);
+            if (profileResult.response.ok && !profileResult.data?.error) {
+                const profile = profileResult.data?.profile ||
+                    profileResult.data?.basic ||
+                    profileResult.data ||
+                    {};
+                factionPosition = String(
+                    profile?.faction?.position ||
+                    profile?.faction?.position_name ||
+                    profile?.faction_position ||
+                    profile?.position ||
+                    ''
+                ).trim().slice(0, 100);
+            }
+        } catch {
+            // Authentication still succeeds; role access is resolved next refresh.
+        }
+    }
+    return { userId, userName, factionId, factionPosition };
 }
 
 
@@ -557,7 +654,8 @@ async function handlePermissionAuth(request, env) {
             env,
             identity.userId,
             identity.factionId,
-            acceptedAt
+            acceptedAt,
+            identity.factionPosition
         );
         if (!permissions.scopes.length) {
             return jsonResponse({
@@ -578,6 +676,7 @@ async function handlePermissionAuth(request, env) {
             user_id: identity.userId,
             user_name: identity.userName,
             faction_id: identity.factionId,
+            faction_position: identity.factionPosition,
             session_id: crypto.randomUUID(),
             session_kind: 'permissions',
             terms_version: DATA_TERMS_VERSION,
@@ -805,18 +904,380 @@ async function handleInternalPermissionSession(request, env) {
             env,
             positiveInteger(session.user_id),
             Math.max(0, Number(session.faction_id) || 0),
-            Date.now()
+            Date.now(),
+            String(session.faction_position || '')
         );
         return jsonResponse({
             ok:true,
             user_id:Number(session.user_id),
             user_name:String(session.user_name || ''),
             faction_id:Math.max(0, Number(session.faction_id) || 0),
+            faction_position:String(session.faction_position || ''),
             roles:resolved.roles,
             scopes:resolved.scopes,
             scope_sources:resolved.scopeSources,
             expires_at:resolved.expiresAt
         });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+function officerAllowed(session) {
+    return hasScope(session, ADMIN_SCOPE) ||
+        hasScope(session, 'slink.war.officer');
+}
+
+
+function onboardingSession(request, env) {
+    return permissionSession(request, env).then(session => {
+        if (!session || !officerAllowed(session) ||
+            !positiveInteger(session.faction_id)) return null;
+        return session;
+    });
+}
+
+
+function normalizeFactionMembers(value) {
+    if (!Array.isArray(value)) {
+        throw new RequestValidationError('members must be an array.');
+    }
+    if (value.length > 1000) {
+        throw new RequestValidationError('Faction roster is too large.');
+    }
+    const unique = new Map();
+    for (const input of value) {
+        const userId = positiveInteger(input?.id ?? input?.user_id);
+        if (!userId) continue;
+        unique.set(userId, {
+            userId,
+            name:String(input?.name || `Player ${userId}`).trim().slice(0, 80),
+            position:String(
+                input?.position?.name ??
+                input?.position_name ??
+                input?.position ??
+                input?.rank ??
+                'Member'
+            ).trim().slice(0, 100) || 'Member',
+            level:Math.max(0, Math.trunc(Number(input?.level) || 0))
+        });
+    }
+    return [...unique.values()];
+}
+
+
+async function factionOnboardingResponse(env, session) {
+    const isAdmin = hasScope(session, ADMIN_SCOPE);
+    const condition = isAdmin
+        ? 'checks.admin_verified_at IS NULL'
+        : 'checks.officer_verified_at IS NULL AND checks.admin_verified_at IS NULL';
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT checks.user_id, checks.user_name, checks.position,
+               checks.level, checks.joined_at, checks.officer_verified_at,
+               checks.officer_verified_by, checks.admin_verified_at,
+               checks.admin_verified_by
+        FROM faction_onboarding_checks AS checks
+        LEFT JOIN faction_member_roster AS roster
+          ON roster.faction_id = checks.faction_id
+         AND roster.user_id = checks.user_id
+        WHERE checks.faction_id = ?1
+          AND ${condition}
+          AND COALESCE(roster.active, 1) = 1
+        ORDER BY checks.joined_at ASC, checks.user_id ASC
+    `).bind(positiveInteger(session.faction_id)).all();
+    return {
+        ok:true,
+        faction_id:positiveInteger(session.faction_id),
+        viewer_is_admin:isAdmin,
+        alerts:(result.results || []).map(row => ({
+            user_id:Number(row.user_id),
+            user_name:String(row.user_name || `Player ${row.user_id}`),
+            position:String(row.position || 'Member'),
+            level:Math.max(0, Number(row.level) || 0),
+            joined_at:Number(row.joined_at) || 0,
+            officer_verified_at:row.officer_verified_at === null
+                ? null
+                : Number(row.officer_verified_at),
+            officer_verified_by:row.officer_verified_by === null
+                ? null
+                : Number(row.officer_verified_by),
+            admin_verified_at:row.admin_verified_at === null
+                ? null
+                : Number(row.admin_verified_at),
+            admin_verified_by:row.admin_verified_by === null
+                ? null
+                : Number(row.admin_verified_by)
+        }))
+    };
+}
+
+
+async function handleFactionOnboarding(request, env) {
+    if (request.method !== 'GET') {
+        return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+    }
+    const session = await onboardingSession(request, env);
+    if (!session) {
+        return jsonResponse({
+            ok:false,
+            error:'Faction officer permission is required.'
+        }, 403);
+    }
+    try {
+        requireDatabase(env);
+        return jsonResponse(await factionOnboardingResponse(env, session));
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function handleFactionOnboardingSync(request, env) {
+    if (request.method !== 'POST') {
+        return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+    }
+    const session = await onboardingSession(request, env);
+    if (!session) {
+        return jsonResponse({
+            ok:false,
+            error:'Faction officer permission is required.'
+        }, 403);
+    }
+    try {
+        requireDatabase(env);
+        const body = await readJsonBody(request);
+        const members = normalizeFactionMembers(body?.members);
+        if (!members.length) {
+            throw new RequestValidationError(
+                'Torn returned no faction members; the roster was not changed.'
+            );
+        }
+        const factionId = positiveInteger(session.faction_id);
+        const now = Date.now();
+        const [state, priorResult] = await Promise.all([
+            env.PERMISSIONS_DB.prepare(`
+                SELECT initialized_at, last_sync_at
+                FROM faction_roster_state
+                WHERE faction_id = ?1
+            `).bind(factionId).first(),
+            env.PERMISSIONS_DB.prepare(`
+                SELECT user_id, active
+                FROM faction_member_roster
+                WHERE faction_id = ?1
+            `).bind(factionId).all()
+        ]);
+        const prior = new Map(
+            (priorResult.results || []).map(row => [
+                Number(row.user_id),
+                Number(row.active) === 1
+            ])
+        );
+        const joined = state
+            ? members.filter(member => prior.get(member.userId) !== true)
+            : [];
+        const statements = [
+            env.PERMISSIONS_DB.prepare(`
+                UPDATE faction_member_roster
+                SET active = 0, updated_at = ?2
+                WHERE faction_id = ?1
+            `).bind(factionId, now)
+        ];
+        for (const member of members) {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                INSERT INTO faction_member_roster(
+                    faction_id, user_id, user_name, position, level,
+                    first_seen_at, last_seen_at, active, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 1, ?6)
+                ON CONFLICT(faction_id, user_id) DO UPDATE SET
+                    user_name = excluded.user_name,
+                    position = excluded.position,
+                    level = excluded.level,
+                    last_seen_at = excluded.last_seen_at,
+                    active = 1,
+                    updated_at = excluded.updated_at
+            `).bind(
+                factionId,
+                member.userId,
+                member.name,
+                member.position,
+                member.level,
+                now
+            ));
+        }
+        for (const member of joined) {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                INSERT INTO faction_onboarding_checks(
+                    faction_id, user_id, user_name, position, level, joined_at,
+                    officer_verified_at, officer_verified_by,
+                    admin_verified_at, admin_verified_by, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, NULL, ?6)
+                ON CONFLICT(faction_id, user_id) DO UPDATE SET
+                    user_name = excluded.user_name,
+                    position = excluded.position,
+                    level = excluded.level,
+                    joined_at = excluded.joined_at,
+                    officer_verified_at = NULL,
+                    officer_verified_by = NULL,
+                    admin_verified_at = NULL,
+                    admin_verified_by = NULL,
+                    updated_at = excluded.updated_at
+            `).bind(
+                factionId,
+                member.userId,
+                member.name,
+                member.position,
+                member.level,
+                now
+            ));
+        }
+        statements.push(env.PERMISSIONS_DB.prepare(`
+            INSERT INTO faction_roster_state(
+                faction_id, initialized_at, last_sync_at, synced_by
+            ) VALUES (?1, ?2, ?2, ?3)
+            ON CONFLICT(faction_id) DO UPDATE SET
+                last_sync_at = excluded.last_sync_at,
+                synced_by = excluded.synced_by
+        `).bind(factionId, now, positiveInteger(session.user_id)));
+        await env.PERMISSIONS_DB.batch(statements);
+        const response = await factionOnboardingResponse(env, session);
+        return jsonResponse({
+            ...response,
+            initialized:!state,
+            joined_count:joined.length,
+            roster_count:members.length,
+            synced_at:now
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function handleFactionOnboardingVerify(request, env, memberId) {
+    if (request.method !== 'POST') {
+        return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+    }
+    const session = await onboardingSession(request, env);
+    if (!session || !memberId) {
+        return jsonResponse({
+            ok:false,
+            error:'Faction officer permission is required.'
+        }, 403);
+    }
+    try {
+        requireDatabase(env);
+        const factionId = positiveInteger(session.faction_id);
+        const verifier = positiveInteger(session.user_id);
+        const now = Date.now();
+        const isAdmin = hasScope(session, ADMIN_SCOPE);
+        const sql = isAdmin
+            ? `UPDATE faction_onboarding_checks
+               SET admin_verified_at = ?3,
+                   admin_verified_by = ?4,
+                   updated_at = ?3
+               WHERE faction_id = ?1 AND user_id = ?2`
+            : `UPDATE faction_onboarding_checks
+               SET officer_verified_at = ?3,
+                   officer_verified_by = ?4,
+                   updated_at = ?3
+               WHERE faction_id = ?1 AND user_id = ?2`;
+        const result = await env.PERMISSIONS_DB.prepare(sql)
+            .bind(factionId, memberId, now, verifier)
+            .run();
+        if (!Number(result.meta?.changes)) {
+            return jsonResponse({ ok:false, error:'Onboarding alert not found.' }, 404);
+        }
+        return jsonResponse({
+            ...(await factionOnboardingResponse(env, session)),
+            verified_user_id:memberId,
+            verification:isAdmin ? 'admin' : 'officer'
+        });
+    } catch (error) {
+        return requestErrorResponse(error);
+    }
+}
+
+
+async function officerRolesResponse(env, factionId) {
+    const result = await env.PERMISSIONS_DB.prepare(`
+        SELECT role_name, role_name_normalized, status, created_at, updated_at
+        FROM faction_officer_role_grants
+        WHERE faction_id = ?1
+        ORDER BY role_name COLLATE NOCASE ASC
+    `).bind(factionId).all();
+    return {
+        ok:true,
+        faction_id:factionId,
+        roles:(result.results || []).map(row => ({
+            name:String(row.role_name),
+            normalized:String(row.role_name_normalized),
+            active:row.status === 'active',
+            created_at:Number(row.created_at) || 0,
+            updated_at:Number(row.updated_at) || 0
+        }))
+    };
+}
+
+
+async function handleAdminOfficerRoles(request, env, factionId) {
+    if (!factionId) {
+        return jsonResponse({ ok:false, error:'A valid Torn faction ID is required.' }, 400);
+    }
+    const session = await permissionSession(request, env);
+    if (!adminAllowed(session)) {
+        return jsonResponse({
+            ok:false,
+            error:'admin.* permission is required.'
+        }, 403);
+    }
+    try {
+        requireDatabase(env);
+        if (request.method === 'GET') {
+            return jsonResponse(await officerRolesResponse(env, factionId));
+        }
+        if (request.method !== 'POST') {
+            return jsonResponse({ ok:false, error:'Method not allowed.' }, 405);
+        }
+        const body = await readJsonBody(request);
+        if (!Array.isArray(body?.roles) || body.roles.length > 50) {
+            throw new RequestValidationError('roles must be an array of up to 50 names.');
+        }
+        const roles = new Map();
+        for (const value of body.roles) {
+            const name = String(value || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+            const normalized = normalizeFactionRole(name);
+            if (name && normalized) roles.set(normalized, name);
+        }
+        const now = Date.now();
+        const statements = [
+            env.PERMISSIONS_DB.prepare(`
+                UPDATE faction_officer_role_grants
+                SET status = 'revoked', updated_at = ?2
+                WHERE faction_id = ?1
+            `).bind(factionId, now)
+        ];
+        for (const [normalized, name] of roles) {
+            statements.push(env.PERMISSIONS_DB.prepare(`
+                INSERT INTO faction_officer_role_grants(
+                    faction_id, role_name, role_name_normalized, status,
+                    granted_by, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?5)
+                ON CONFLICT(faction_id, role_name_normalized) DO UPDATE SET
+                    role_name = excluded.role_name,
+                    status = 'active',
+                    granted_by = excluded.granted_by,
+                    updated_at = excluded.updated_at
+            `).bind(
+                factionId,
+                name,
+                normalized,
+                positiveInteger(session.user_id),
+                now
+            ));
+        }
+        await env.PERMISSIONS_DB.batch(statements);
+        return jsonResponse(await officerRolesResponse(env, factionId));
     } catch (error) {
         return requestErrorResponse(error);
     }

@@ -406,6 +406,136 @@ describe('SLINK Contribution Service', () => {
     });
 
 
+    it('assigns officer access by faction role and keeps admin onboarding verification separate', async () => {
+        const env = createEnv();
+        globalThis.fetch = tornFetch({
+            accessType:'Limited Access',
+            accessLevel:2,
+            factionPosition:'Leader'
+        });
+        const adminAuth = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key:'owner-role-key',
+                terms_accepted:true,
+                terms_version:'2026-08-24',
+                terms_sha256:'72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const admin = await adminAuth.json();
+        const adminHeaders = {
+            Authorization:`Bearer ${admin.session_token}`
+        };
+        const rolesSaved = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/admin/factions/46978/officer-roles',
+                { roles:['Leader', 'Co-leader'] },
+                adminHeaders
+            ),
+            env
+        );
+        assert.equal(rolesSaved.status, 200);
+        assert.deepEqual(
+            (await rolesSaved.json()).roles
+                .filter(role => role.active)
+                .map(role => role.name),
+            ['Co-leader', 'Leader']
+        );
+        const resolved = await testing.loadPermissions(
+            env,
+            9001,
+            46978,
+            Date.now(),
+            'Co-leader'
+        );
+        assert.ok(resolved.scopes.includes('slink.war.officer'));
+        assert.equal(
+            resolved.scopeSources['slink.war.officer'],
+            'faction_role'
+        );
+
+        const baseline = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/faction/onboarding/sync',
+                { members:[
+                    { id:100, name:'Existing One', position:'Member' },
+                    { id:101, name:'Existing Two', position:'Member' }
+                ] },
+                adminHeaders
+            ),
+            env
+        );
+        assert.equal(baseline.status, 200);
+        assert.equal((await baseline.json()).joined_count, 0);
+
+        globalThis.fetch = tornFetch({
+            accessType:'Limited Access',
+            accessLevel:2,
+            userId:9001,
+            userName:'Faction Officer',
+            factionPosition:'Co-leader'
+        });
+        const officerAuth = await worker.fetch(
+            jsonRequest('https://contribution.example/api/permissions/auth', {
+                api_key:'officer-role-key',
+                terms_accepted:true,
+                terms_version:'2026-08-24',
+                terms_sha256:'72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a'
+            }),
+            env
+        );
+        const officer = await officerAuth.json();
+        assert.ok(officer.scopes.includes('slink.war.officer'));
+        const officerHeaders = {
+            Authorization:`Bearer ${officer.session_token}`
+        };
+        const joined = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/faction/onboarding/sync',
+                { members:[
+                    { id:100, name:'Existing One', position:'Member' },
+                    { id:101, name:'Existing Two', position:'Member' },
+                    { id:102, name:'New Recruit', position:'Recruit' }
+                ] },
+                officerHeaders
+            ),
+            env
+        );
+        const joinedBody = await joined.json();
+        assert.equal(joinedBody.joined_count, 1);
+        assert.equal(joinedBody.alerts[0].user_id, 102);
+
+        const officerVerified = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/faction/onboarding/102/verify',
+                {},
+                officerHeaders
+            ),
+            env
+        );
+        assert.equal((await officerVerified.json()).alerts.length, 0);
+
+        const adminPending = await worker.fetch(
+            new Request(
+                'https://contribution.example/api/faction/onboarding',
+                { headers:adminHeaders }
+            ),
+            env
+        );
+        assert.equal((await adminPending.json()).alerts[0].user_id, 102);
+
+        const adminVerified = await worker.fetch(
+            jsonRequest(
+                'https://contribution.example/api/faction/onboarding/102/verify',
+                {},
+                adminHeaders
+            ),
+            env
+        );
+        assert.equal((await adminVerified.json()).alerts.length, 0);
+    });
+
+
     it('revokes key material and allows a fresh donation', async () => {
         const env = createEnv();
         globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1 });
@@ -755,7 +885,8 @@ function createEnv() {
         '0011-mugging-contribution-keys.sql',
         '0012-mugging-permission.sql',
         '0013-quality-of-life-permissions.sql',
-        '0014-feature-permission-sweep.sql'
+        '0014-feature-permission-sweep.sql',
+        '0017-faction-onboarding.sql'
     ]) {
         sqlite.exec(readFileSync(
             new URL(`../../permissions/migrations/${migration}`, import.meta.url),
@@ -792,18 +923,37 @@ function jsonRequest(url, body, headers = {}) {
 }
 
 
-function tornFetch({ accessType, accessLevel }) {
+function tornFetch({
+    accessType,
+    accessLevel,
+    userId = 3853023,
+    userName = 'Considious',
+    factionId = 46978,
+    factionPosition = 'Leader'
+}) {
     return async input => {
         const url = new URL(String(input));
         if (url.pathname === '/v2/key/info') {
             return Response.json({
                 info: {
             user: {
-                id: 3853023,
-                name: 'Considious',
-                faction_id: 46978
+                id: userId,
+                name: userName,
+                faction_id: factionId
             },
                     access: { type: accessType, level: accessLevel }
+                }
+            });
+        }
+        if (url.pathname === '/v2/user/basic') {
+            return Response.json({
+                profile: {
+                    id:userId,
+                    name:userName,
+                    faction:{
+                        faction_id:factionId,
+                        position:factionPosition
+                    }
                 }
             });
         }
