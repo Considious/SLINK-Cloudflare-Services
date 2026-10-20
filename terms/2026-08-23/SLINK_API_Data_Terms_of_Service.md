@@ -1,257 +1,284 @@
-# SLINK API & Data Terms of Service
+# SLINK Terms of Service, Privacy & API Data Policy
 
-**Shared Live Intelligence NetworK**  
-Scripts - Shared Services - Data Infrastructure
+**Shared Live Intelligence NetworK (SLINK)**  
+Browser Extension · PDA Userscript · Shared Services · Data Infrastructure
 
 **Operator:** Considious [3853023]  
 **Faction:** [())))))] ("Slinky's") [46978]  
-**Last Updated:** August 24, 2026
+**Policy version:** 2026-10-20  
+**Effective date:** October 20, 2026  
+**Last updated:** October 20, 2026
 
 ## Plain-language summary
 
-These terms explain how SLINK tools use Torn API access, what information may
-be stored or shared, how shared API capacity supports SLINK services, how
-product permissions are assigned, and the additional rules that apply to API
-keys specifically purchased for automated public-data collection.
+SLINK is a collection of optional tools for Torn. It uses a Torn API key, data
+from Torn pages that the user manually opens and actively views, locally saved
+settings, and selected shared SLINK services.
 
-## 1. Scope and Purpose
+Ordinary user API keys are saved only on that user's device. They may be sent
+temporarily to Torn or a SLINK authentication endpoint when a request needs to
+verify identity, faction membership, permissions, or retrieve authorized data.
+They are not persistently stored by SLINK's shared services.
 
-These Terms apply to scripts, browser extensions, shared services, databases,
-and related Torn tools operated by Considious [3853023] under the SLINK -
-Shared Live Intelligence NetworK - project. Some tools are faction-specific;
-others may be available to current Slinky's [46978] members and individually
-authorized users outside the faction.
+Some API-derived information is intentionally shared, including war,
+retaliation, leveling, mugging, bounty, faction-officer, and market
+intelligence. A user can see which modules are enabled and can disable optional
+features where controls are provided.
 
-The tools are intended to improve coordination, reduce unnecessary duplicate
-API requests, provide useful shared intelligence, and support functions
-including ranked-war targeting, retaliation alerts, leveling, market
-monitoring, alerts, and statistical analysis.
+Settings backups are optional recovery copies stored by SLINK and do not include
+Torn API keys or third-party provider keys. Donated Public Torn API keys are the
+only API keys SLINK intentionally stores remotely; they require a separate
+explicit action by the key owner but are governed by this same policy.
 
-By providing an API key to a tool covered by these Terms, the user authorizes
-that tool to use the key and resulting API data only for the purposes disclosed
-by these Terms and by the specific tool.
+## 1. Agreement and relationship to Torn
 
-## 2. General API Policy
+These Terms apply to the SLINK browser extension, PDA userscript, dashboard,
+Cloudflare Workers, databases, object storage, GitHub-hosted assets, and related
+services operated by Considious [3853023].
 
-- Torn passwords are never requested.
-- Ordinary user API keys are not remotely stored unless a specific tool clearly
-  states otherwise and obtains authorization for that use.
-- A key may be stored locally in the user's browser or userscript environment so
-  an installed tool can perform authorized Torn API requests.
-- A key may be transmitted temporarily when required to verify Torn identity,
-  determine current faction membership, or perform an authorized request,
-  without being persistently stored by the shared service.
-- API-derived information may be retained after the request that produced it
-  when that information is part of the disclosed shared service.
-- SLINK uses Limited Access as its standard general-purpose key level where
-  required. Individual tools will request only the selections they need, and
-  some tools may function with Minimal Access. Full Access is never required.
-- Purchased API keys are a separate category and are restricted to Public
-  access as described later in these Terms.
+SLINK is an independent community tool and is not operated, endorsed, or
+warranted by Torn. Torn's rules, scripting rules, API Terms of Service, and API
+limits always take priority. If any SLINK behavior conflicts with a Torn rule,
+that behavior must be disabled or corrected.
 
-## 3. Shared Service Participation and API Contribution
+Using SLINK or supplying an API key means the user authorizes the uses described
+in this policy. Users who do not agree must not authenticate or enable SLINK
+services.
 
-Some SLINK tools depend on shared information. Use of those tools may therefore
-require a minimal contribution of API capacity and/or observations to maintain
-the live service.
+## 2. Torn scripting and page-access rules
 
-Where a user's Torn permissions provide the selections required by a service,
-the installed tool may contribute appropriate requests to that shared service.
-If the user's Torn or faction position does not provide a required selection,
-that user will not be required to contribute requests their key cannot perform.
+SLINK is designed to comply with Torn's rules for scripts, addons, extensions,
+and tools:
 
-Users of compatible SLINK tools may be asked, where practical, to voluntarily
-contribute additional API calls toward compatible shared-service requests.
-Users may be allowed to voluntarily raise their contribution limit to further
-support the service. Controls reserved to `admin.*` may reduce the operator's
-routine shared-service contribution to zero.
+- Automated or scheduled Torn requests use the official Torn API.
+- DOM information is read only from a Torn page the user manually loaded and is
+  actively viewing.
+- SLINK must not automatically make non-API Torn requests, scrape Torn pages
+  that are not actively viewed, monitor unfocused pages for new Torn data,
+  bypass CAPTCHA protections, or simulate unattended gameplay.
+- A user-initiated helper may fill, highlight, confirm, navigate, or perform the
+  specific action the user selected. SLINK does not authorize unattended
+  automation.
+- Race recommendations highlight a car but do not select it automatically.
+- Safety confirmations, chat helpers, and similar features require a deliberate
+  user action for the protected or final action.
+- Malicious, concealed, or materially undisclosed functionality is prohibited.
 
-## 4. API Rate Management and Safety
+## 3. API key rules
 
-Participating SLINK tools maintain a combined target ceiling of 60 Torn API
-requests per minute per user across the Suite. Individual tools may use lower
-configurable limits, and shared-service contributions are included within this
-combined budget.
+- SLINK never asks for a Torn password.
+- Ordinary Torn API keys are stored locally in the browser extension or PDA
+  userscript storage.
+- Ordinary keys may be transmitted temporarily to Torn and to the relevant
+  SLINK service to authenticate the user, confirm faction membership or role,
+  obtain authorized API data, or carry out a disclosed module request.
+- Ordinary keys are not written to SLINK databases, object storage, logs, or
+  analytics.
+- Full Access keys are not required. SLINK generally uses Minimal, Limited, or
+  Custom access depending on the enabled module and requested Torn selection.
+- SLINK should request only the selections needed for the enabled feature and
+  should cache or coordinate results where practical to avoid unnecessary API
+  calls.
+- Users may replace or revoke a key through Torn at any time. Removing the key
+  from SLINK prevents new authenticated requests from that device.
+- A custom key must be treated with the same care as a Full Access key, in
+  accordance with Torn's guidance.
 
-This ceiling is intentionally conservative and is designed to preserve
-capacity for other Torn API use. Because users may also operate third-party
-tools outside SLINK, the Suite cannot guarantee that its own ceiling will
-prevent the user's total Torn API usage from reaching Torn's limits.
+## 4. Required Torn API disclosure
 
-The service will attempt to minimize unnecessary requests by sharing cached
-information, scheduling future checks when a target's state is already known,
-coordinating requests between active clients, and distributing required checks
-across participating users.
+| Data Storage | Data Sharing | Purpose of Use | Key Storage & Sharing | Key Access Level |
+| --- | --- | --- | --- | --- |
+| Local settings and API results may persist on the user's device. Shared-service data may be temporary or persistent as described below. Optional settings backups persist until replaced or deleted. | The user; authorized faction members or SLINK users for shared modules; the operator where required to run or support the service; third-party providers only when that integration is used. | Alerts, combat and faction coordination, target discovery, Fair Fight estimation, market and travel assistance, efficiency and quality-of-life tools, service security, troubleshooting, and non-malicious statistical analysis. | Ordinary keys: stored locally and transmitted temporarily, never persistently stored by SLINK. Donated Public keys: stored remotely for the disclosed public-data service. | Minimal, Limited, or Custom selections as required. Full Access is not required. Donated keys must be Public access only. |
 
-If Torn returns a rate-limit response, participating SLINK tools are intended
-to suspend discretionary Torn API requests for approximately two minutes
-before cautiously resuming.
+The sections below explain the storage, sharing, and purpose for each category.
 
-## 5. Identity, Membership, and Product Authorization
+## 5. Local-only and device features
 
-A user's Torn API key may be transmitted temporarily to verify the user's Torn
-ID and current faction. Successful identity verification does not by itself
-grant access to every SLINK product.
+Local features include interface preferences, alert toggles, panel size and
+position, saved module state, racing builds and nicknames, chat buttons and
+highlight terms, safety confirmations, and other device-specific preferences.
 
-SLINK product access is controlled by named scopes. A scope may be supplied by
-an automatic faction grant or by an active direct grant assigned to a Torn user.
-Direct grants may be permanent or time-limited and may originate from a
-purchase, promotion, or manual operator assignment.
+Torn API results used only for the current user's private display may be cached
+locally to reduce repeat requests. Local data remains accessible to anyone who
+can access that browser or PDA storage.
 
-Current Slinky's [46978] members receive `slink.level` and `slink.war`
-automatically and free of charge. A user outside Slinky's may receive either
-product scope through an active direct grant. Leaving Slinky's removes the
-automatic faction entitlement but does not cancel a separate active direct
-grant.
+## 6. Authentication, permissions, and faction grants
 
-`slink.war.faction` is not a purchased or manually assigned product. It is a
-short-lived session capability added only when Torn confirms that the user's
-current faction position can read faction attack reports. It does not grant
-`admin.*` or access to unrelated SLINK products.
+SLINK temporarily uses the user's key to verify Torn identity, current faction,
+and available API access. The permissions service may persist:
 
-Other faction-specific services may remain exclusive to current Slinky's
-members. Each product determines and enforces its own required scope.
+- Torn user ID and verified faction ID or faction position;
+- direct, faction, role, and administrative scope grants;
+- grant source, status, dates, operator, notes, and audit metadata;
+- current policy acceptance version, fingerprint, and acceptance time; and
+- short-lived signed session identifiers and security metadata.
 
-The permissions service may retain Torn user IDs, faction-to-scope mappings,
-granted scopes, grant source and status, validity dates, the granting operator,
-an optional transaction or operator reference, and an operational note. It
-does not store the user's Torn API key or payment-card information.
+The permissions service does not persist the ordinary Torn API key.
 
-## 6. War Panel
+A feature may be available through an individual grant, faction grant, role
+grant, or administrative scope. Grants control SLINK access only and do not
+alter Torn permissions.
 
-The War Panel supports ranked-war targeting and shared enemy-faction
-intelligence. It may use information visible on the ranked-war page the user
-has manually loaded, together with authorized Torn API requests.
+## 7. Shared combat and target intelligence
 
-Enemy faction and player information gathered through authorized requests may
-be cached and distributed to authorized Slinky's members so every member does
-not need to independently request the same information.
+War, retaliation, leveling, mugging, bounty, target-list, and stakeout features
+may share information among users authorized for the relevant scope. Shared
+data can include public or authorized player and faction details, current
+status, hospitalization timing, activity indicators, attack or retaliation
+opportunities, target history, Fair Fight or battle-stat estimates, competition
+measurements, scheduling information, and deduplication identifiers.
 
-| Disclosure | War Panel |
-| --- | --- |
-| Data Storage | Live target snapshots are temporary; the limited aggregate event counters described below may be persistent. |
-| Data Sharing | Users with an active `slink.war` entitlement / shared War service. |
-| Purpose | Ranked-war coordination, target selection, and competitive faction intelligence. |
-| Key Storage | Ordinary user keys are not remotely stored; API-derived information may be shared. |
-| Access | Active `slink.war` entitlement; Minimal or Limited API access depending on the contributed request. Full Access is not required. |
+Live alerts and coordination records may be temporary. Target intelligence,
+estimates, historical observations, aggregate counters, scheduling state, and
+service-quality measurements may persist so every user does not have to repeat
+the same request.
 
-## 7. Retaliation Panel
+Fair Fight estimates may use FFScouter or another disclosed provider. Data sent
+to that provider is subject to its own terms and availability.
 
-The Retaliation Panel uses authorized Faction API information to process
-faction attack reports in live order and distribute relevant retaliation
-opportunities to authorized Slinky's members.
+## 8. Faction officer and administration features
 
-Live retaliation windows and attack-ID deduplication are temporary. Losses,
-escapes, and successful attacks against an online current-war opponent may be
-retained as time-bucketed counters rather than full per-attack history.
+Faction onboarding, equipment verification, Armory Recaller, armory thresholds,
+organized-crime supply checks, company/director tools, and officer alerts may
+use faction information the authenticated user is permitted to access.
 
-| Disclosure | Retaliation Panel |
-| --- | --- |
-| Data Storage | Live retals and deduplication are temporary; disclosed aggregate counters may be persistent. |
-| Data Sharing | Users with an active `slink.war` entitlement and the service operator. |
-| Purpose | Retaliation coordination and non-malicious statistical analysis of faction combat activity. |
-| Key Storage | Ordinary user keys are not remotely stored; derived faction data may be stored/shared. |
-| Access | Active `slink.war` entitlement; contributing faction attack checks additionally requires the temporary `slink.war.faction` capability. |
+Relevant membership, position, verification, inventory threshold, organized
+crime, and alert state may be shared with authorized faction officers and
+administrators. An officer verification can synchronize across officer
+profiles. Administrative users may retain separate verification visibility for
+testing and oversight.
 
-## 8. Leveling Target Service
+## 9. Alerts, efficiency, and quality-of-life modules
 
-The Leveling Target Service is designed to identify useful leveling targets
-while reducing competition and unnecessary API usage. It may combine
-established leveling lists, Slinky's target information, API observations, and
-information observed from Torn pages that users manually visit.
+SLINK may use authorized API data for cooldowns, energy, nerve, travel, racing,
+crime unique opportunities, missions, merits, company information, property and
+bank information, stock benefits, organized crime timing, museum sets, events,
+market watches, bazaar watches, and similar alerts or summaries.
 
-Shared information may include target status, hospitalization history,
-activity indicators, Federal Jail or Hiding Out status, Fair Fight estimates,
-competition measurements, scheduling information, and other data reasonably
-necessary for target selection.
+Alert preferences and dismissals are stored locally unless a feature expressly
+uses shared state. SLINK may continue an active module briefly after the user
+leaves its tab to prevent ordinary navigation from interrupting work. Users can
+disable supported modules and alerts.
 
-Observations may be synchronized between clients authorized for `slink.level`
-so users benefit from information already collected by other participants. The
-service may coordinate API work between active clients and distribute target
-recommendations to reduce unnecessary competition between Leveling users.
+DOM-based features operate only on currently viewed Torn pages. They must not
+turn a manually viewed page into an unattended Torn scraper.
 
-| Disclosure | Leveling Target Service |
-| --- | --- |
-| Data Storage | Persistent shared target intelligence and event history. |
-| Data Sharing | Users with an active `slink.level` entitlement / shared Leveling service. |
-| Purpose | Efficient leveling, target discovery, competition reduction, and coordinated API scheduling. |
-| Key Storage | Ordinary user keys are not remotely stored. |
-| Access | Minimal or Limited Access, depending on the information required by the service. |
+## 10. Market, bazaar, travel, and abroad-stock data
 
-## 9. Purchased API Keys
+Market and bazaar tools may compare Torn market values, visible listings,
+configured thresholds, and shared public market observations. Abroad Stocks may
+use YATA, Prometheus, Torn Intel, or other providers shown in the interface.
 
-Some API keys may be voluntarily sold or otherwise explicitly provided for
-dedicated automated data-collection purposes. Purchased API keys are different
-from purchased access to a SLINK product.
+Third-party integration is optional or dependent on provider availability.
+Provider keys, when required, are stored locally and sent to the selected
+provider. SLINK does not guarantee third-party accuracy, uptime, restock
+estimates, market prices, availability, or continued API access. Users are also
+subject to the provider's terms.
 
-Only Public-access API keys will be purchased or accepted for automated
-collection. Before compensation is accepted, the key owner must be informed
-that the key will be stored and used for automated public-data collection.
-Purchased keys may be securely stored by the service and used independently of
-whether the key owner is actively using a SLINK script.
+Market alerts and recommendations are informational. SLINK does not guarantee
+profit, item availability, or that a listing remains available when opened.
 
-Permitted uses may include market monitoring, bazaar monitoring, public player,
-faction or company cataloguing, leveling-target discovery, statistical
-analysis, historical datasets, and distribution of public-data workload across
-SLINK services.
+## 11. Optional settings backup and recovery
 
-Purchased keys will not be used to retrieve private information requiring
-Minimal, Limited, Full, or other private permissions.
+SLINK may offer an authenticated remote backup of non-secret settings so a user
+can manually restore configuration after device or storage loss.
 
-| Disclosure | Purchased API Keys |
-| --- | --- |
-| Data Storage | Persistent. |
-| Data Sharing | Service operator; derived public information may be shared with authorized SLINK services/users. |
-| Purpose | Public-data collection, market monitoring, target discovery, cataloguing, statistical analysis, and service operation. |
-| Key Storage | Purchased Public keys may be securely stored for disclosed automated use; the key itself is not distributed to users. |
-| Access | Public only. |
+Backups may include alert settings, target lists, watched items, module
+preferences, racing builds, and similar configuration. Backups exclude Torn API
+keys, donated-key material, and third-party provider keys.
 
-## 10. Purchased or Granted Product Access
+A backup is not automatically restored over current local settings. Recovery
+requires a deliberate user action. A newer backup may replace an older backup.
+The operator's hosting provider stores the backup, and the operator may have
+infrastructure access when needed for maintenance or support.
 
-Purchasing or receiving access to a SLINK product grants only the named product
-scope for the stated period. It does not sell or transfer an API key, grant
-administrative authority, or authorize data uses beyond the product disclosures
-in these Terms.
+## 12. Donated Public API keys
 
-An expired or revoked direct grant prevents new product authentication unless
-the user also qualifies through an active faction grant. Existing signed
-sessions may remain usable until their stated short expiration.
+A user may separately and voluntarily contribute a Torn API key for SLINK's
+shared public-data workload. This is not required for ordinary SLINK use unless
+the interface clearly states otherwise.
 
-## 11. Data Aggregation and Deduplication
+Only a Public-access key is accepted. The donated key may be encrypted and
+stored remotely, used while the user's device is offline, and assigned to
+allowlisted public Torn API requests. Uses may include public market, bazaar,
+player, faction, company, target-discovery, cataloguing, monitoring, and
+statistical requests.
 
-Information contributed by multiple users may be combined into aggregate
-datasets. The service may deduplicate observations so multiple clients
-reporting the same event do not artificially inflate statistics.
+The raw donated key is not distributed to SLINK users. Derived public data may
+be shared with authorized SLINK services and users. The donor can revoke the key
+through Torn and may use SLINK's revocation control where available.
 
-Aggregated information may be used to improve scheduling, target
-prioritization, competition estimates, faction tools, market or public-data
-tools, and other functionality described by these Terms.
+This section replaces the need for a separate donation policy: donating a key
+is an explicit opt-in action governed by this same document.
 
-## 12. Security and Revocation
+## 13. API budgets and service protection
 
-- API keys will never intentionally be exposed to other users.
-- Ordinary user keys will not be remotely retained unless a specific service
-  clearly discloses that behavior and obtains authorization.
-- Purchased Public API keys are the primary exception and may be securely
-  stored for the automated uses specifically disclosed above.
-- Users may revoke or replace their Torn API key at any time through Torn.
-- Access to a scope-protected service may end when a required faction or direct
-  grant is no longer active.
+SLINK coordinates and limits requests across its modules. Individual modules
+may have lower minute, daily, or activity-based budgets. When a budget is
+reached, work may be queued, delayed, or skipped.
 
-## 13. Tool-Specific Disclosures
+SLINK cannot account for requests made by unrelated tools using the same key.
+Torn's API responses and limits remain authoritative. Cached results may be used
+when fresh enough for the feature.
 
-This document provides the blanket terms for SLINK. Each tool that requests an
-API key should also present a concise tool-specific disclosure at or near the
-point where the key is supplied, identifying the relevant data use,
-storage/sharing behavior, purpose, and required access level.
+SLINK may suspend, throttle, or revoke service access to protect Torn, SLINK
+infrastructure, users, or shared capacity.
 
-If a tool introduces materially different API permissions, persistent key
-storage, a new category of shared data, or a substantially different purpose
-of use, that behavior should be disclosed before the new use is implemented.
+## 14. Paid or granted SLINK access
 
-## 14. Changes to These Terms
+Some SLINK scopes may be restricted, granted to selected factions or testers,
+or offered for a fee. Any fee is for access to SLINK software or hosted
+features—not for Torn currency, items, accounts, or ownership of a user's API
+key.
 
-These Terms may be updated as SLINK and its shared services develop. Material
-changes involving new API permissions, storage of ordinary user API keys, new
-categories of shared data, or substantially different uses of contributed API
-information will be disclosed before those new uses are implemented.
+Paid or donated features must remain subject to Torn's rules and any approval
+Torn requires for charging users, accepting donations, or advertising. A SLINK
+purchase does not create a guarantee of profit, uninterrupted access, or
+continued compatibility with Torn.
+
+## 15. Security, retention, deletion, and revocation
+
+SLINK uses reasonable technical controls, scoped permissions, short-lived
+sessions, request limits, and access checks. No online service can guarantee
+perfect security or availability.
+
+Users can revoke Torn keys through Torn, disable modules, remove local data,
+revoke a donated key, and request deletion of attributable SLINK server data by
+contacting Considious [3853023] in Torn. Some anonymized or aggregated records,
+security logs, acceptance records, or records required for service integrity may
+be retained where reasonably necessary.
+
+If a user leaves a faction or loses a grant, faction-derived or direct access
+may end. Existing short-lived sessions may expire or be invalidated.
+
+## 16. Accuracy, availability, and user responsibility
+
+SLINK data can be delayed, incomplete, estimated, or wrong. Users remain
+responsible for confirming targets, prices, travel timing, organized crimes,
+stock benefits, event guidance, alerts, and any action before relying on it.
+
+SLINK is provided on an "as available" basis without a guarantee of
+uninterrupted operation, continued Torn compatibility, financial return, combat
+result, or preservation of local device storage.
+
+## 17. Policy updates and renewed acceptance
+
+Material policy changes receive a new policy version and document fingerprint.
+SLINK may invalidate existing sessions and require every user to review and
+accept the current policy before authenticating again.
+
+The public policy link remains stable so installed clients and users can always
+open the current policy. Historic acceptance records may be retained for audit
+purposes.
+
+## 18. Contact
+
+Questions, deletion requests, or security concerns can be directed to
+Considious [3853023] through Torn.
+
+## Official Torn policies
+
+SLINK is intended to follow the current official requirements published in:
+
+- [Torn API documentation and API Terms of Service](https://www.torn.com/api.html)
+- [Rules for Scripts, Addons, Extensions & Tools](https://www.torn.com/forums.php?a=0&b=0&f=67&p=threads&t=16037108)

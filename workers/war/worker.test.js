@@ -25,7 +25,7 @@ test('publishes the exact current shared terms fingerprint', () => {
   ).replace(/\r\n?/g, '\n');
   const fingerprint = crypto.createHash('sha256').update(terms, 'utf8').digest('hex');
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
-  assert.match(worker, /const TERMS_VERSION = '2026-08-24'/);
+  assert.match(worker, /const TERMS_VERSION = '2026-10-20'/);
   assert.match(worker, new RegExp(fingerprint));
 });
 

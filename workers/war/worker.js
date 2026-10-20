@@ -19,10 +19,10 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.0-permission-sessions';
+const WORKER_VERSION = '0.8.1-unified-terms';
 const SLINKY_FACTION_ID = 46978;
-const TERMS_VERSION = '2026-08-24';
-const TERMS_SHA256 = '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
+const TERMS_VERSION = '2026-10-20';
+const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
 const SESSION_LIFETIME_SECONDS = 2 * 60 * 60;
 const MAX_BODY_BYTES = 256 * 1024;

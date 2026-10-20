@@ -1,17 +1,17 @@
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.7-faction-onboarding
+ * Release: 0.4.9-unified-terms
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.8-officer-armory-oc';
-const DATA_TERMS_VERSION = '2026-08-24';
+const WORKER_VERSION = '0.4.9-unified-terms';
+const DATA_TERMS_VERSION = '2026-10-20';
 const DATA_TERMS_SHA256 =
-    '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
+    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
 const DATA_TERMS_URL =
     'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
     'terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -29,17 +29,14 @@ const OFFICER_MANAGED_SCOPES = Object.freeze([
     'slink.officer.armory',
     'slink.officer.oc'
 ]);
-const TERMS_VERSION = '2026-08-23';
-const TERMS_EFFECTIVE_AT = '2026-08-23';
-const TERMS_URL =
-    'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
-    'workers/contribution/terms/2026-08-23/' +
-    'SLINK_API_Key_Donation_Terms.md';
+const TERMS_VERSION = DATA_TERMS_VERSION;
+const TERMS_EFFECTIVE_AT = '2026-10-20';
+const TERMS_URL = DATA_TERMS_URL;
 const TERMS_DOCUMENT_SHA256 =
-    '235789f3d858ce3cea62527fadbf249d13ecb6d7c00d0d83f25eb53026819739';
-const DISCLOSURE_VERSION = '2026-08-23';
+    DATA_TERMS_SHA256;
+const DISCLOSURE_VERSION = DATA_TERMS_VERSION;
 const DISCLOSURE_SHA256 =
-    '62003b1c06ca2f9843e34bf72e44fe102f3856289a4f421fe9d8284c2c67b35a';
+    DATA_TERMS_SHA256;
 const TERMS_SUMMARY =
     'Donating a Public Only Torn API key stores it remotely with authenticated ' +
     'encryption so the SLINK Contribution Service can use it for allowlisted ' +

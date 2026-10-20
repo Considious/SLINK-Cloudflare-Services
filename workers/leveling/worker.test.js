@@ -7,13 +7,13 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.16.1-admin-manual-backup';
-const TERMS_VERSION = '2026-08-24';
+const WORKER_VERSION = '0.16.2-unified-terms';
+const TERMS_VERSION = '2026-10-20';
 const TERMS_DOCUMENT_SHA256 =
-    '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
-const LEVELING_DISCLOSURE_VERSION = '2026-08-23';
+    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+const LEVELING_DISCLOSURE_VERSION = '2026-10-20';
 const LEVELING_DISCLOSURE_SHA256 =
-    'e1d595a7c8c9e5a8f105bf52d7157c4d40b91314293725391422b14de97fd91d';
+    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
 const SESSION_SECRET = 'test-session-secret';
 const originalDateNow = Date.now;
 
@@ -138,7 +138,7 @@ describe('SLINK Leveling Worker', () => {
         assert.match(terms.document_url, /SLINK_API_Data_Terms_of_Service\.md$/);
         const publishedTerms = readFileSync(
             new URL(
-                '../../terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md',
+                '../../terms/2026-10-20/SLINK_API_Data_Terms_of_Service.md',
                 import.meta.url
             )
         );

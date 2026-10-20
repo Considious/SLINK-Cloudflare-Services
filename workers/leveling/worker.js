@@ -1,7 +1,7 @@
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.16.1-admin-manual-backup
+ * Release: 0.16.2-unified-terms
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
@@ -21,26 +21,26 @@ import {
     shouldWriteDailyBackup
 } from './hourly-materializer.js';
 
-const WORKER_VERSION = '0.16.1-admin-manual-backup';
+const WORKER_VERSION = '0.16.2-unified-terms';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
     'Slinkies-Leveling-Targets/Master-Leveling-Targets.csv';
 const FFSCOUTER_TARGETS_URL = 'https://ffscouter.com/api/v1/get-targets';
 
-const TERMS_VERSION = '2026-08-24';
-const TERMS_EFFECTIVE_AT = '2026-08-24';
+const TERMS_VERSION = '2026-10-20';
+const TERMS_EFFECTIVE_AT = '2026-10-20';
 const TERMS_URL =
     'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
     'terms/2026-08-23/' +
     'SLINK_API_Data_Terms_of_Service.md';
 const TERMS_DOCUMENT_SHA256 =
-    '72a933d69ec99cabeb92b426208e9d0c47e90acaf960818e0b4da38f3f2f5b0a';
+    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
 const LEVELING_SERVICE_ID = 'slink-leveling-service';
 const CONTRIBUTION_LEVELING_SERVICE_ID = 'slink.level';
-const LEVELING_DISCLOSURE_VERSION = '2026-08-23';
+const LEVELING_DISCLOSURE_VERSION = TERMS_VERSION;
 const LEVELING_DISCLOSURE_SHA256 =
-    'e1d595a7c8c9e5a8f105bf52d7157c4d40b91314293725391422b14de97fd91d';
+    TERMS_DOCUMENT_SHA256;
 const LEVELING_TERMS_SUMMARY =
     'Your Torn API key is sent to SLINK only to verify your Torn identity and ' +
     'current faction and is otherwise used locally for assigned Torn requests; ' +
