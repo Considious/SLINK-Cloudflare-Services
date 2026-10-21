@@ -145,6 +145,7 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.equal(halloween?.ornament, 'halloween');
   assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.jpg$/);
   assert.match(halloween?.assets?.iconSheet || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
+  assert.equal(halloween?.assets?.packaged, true);
   assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);
   const permissionMigration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0010-dragons-breath-theme.sql'), 'utf8');
   assert.match(permissionMigration, /'slink\.theme\.dragons-breath'/);

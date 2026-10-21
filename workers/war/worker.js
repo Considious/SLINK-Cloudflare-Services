@@ -158,7 +158,8 @@ function validateThemeCatalog(value) {
       if (typeof entry.assets !== 'object' || Array.isArray(entry.assets)) throw new Error(`Theme ${id} has invalid assets.`);
       assets = {
         background:validateThemeAssetUrl(entry.assets.background, id, 'background'),
-        iconSheet:validateThemeAssetUrl(entry.assets.iconSheet, id, 'icon sheet')
+        iconSheet:validateThemeAssetUrl(entry.assets.iconSheet, id, 'icon sheet'),
+        packaged:entry.assets.packaged === true
       };
     }
     seen.add(id);
