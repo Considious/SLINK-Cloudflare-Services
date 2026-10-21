@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-10-21.1",
+  "revision": "2026-10-21.2",
   "updatedAt": "2026-10-21T00:00:00Z",
   "themes": [
     {
@@ -198,7 +198,7 @@
       "ornament": "halloween",
       "swatch": ["#08050f", "#a72cff", "#75ff42"],
       "assets": {
-        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-background.jpg",
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-background.png",
         "iconSheet": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-icons.png",
         "packaged": true
       },
