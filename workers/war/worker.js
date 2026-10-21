@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.1-unified-terms';
+const WORKER_VERSION = '0.8.2-live-image-themes';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -32,6 +32,7 @@ const ATTACK_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
 const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
+const THEME_ASSET_ORIGIN = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/';
 const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
 const THEME_REFRESH_MS = 15 * 60 * 1000;
 const THEME_TOKEN_NAMES = new Set([
@@ -42,6 +43,19 @@ const THEME_TOKEN_NAMES = new Set([
   '--slink-panel-bg', '--slink-button-bg', '--slink-selected-bg', '--slink-mark-bg',
   '--slink-glow-left', '--slink-glow-right', '--slink-metal', '--slink-metal-dark'
 ]);
+
+function validateThemeAssetUrl(raw, themeId, kind) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  let parsed;
+  try { parsed = new URL(value); }
+  catch { throw new Error(`Theme ${themeId} has an invalid ${kind} asset URL.`); }
+  if (!value.startsWith(THEME_ASSET_ORIGIN) || parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error(`Theme ${themeId} has a disallowed ${kind} asset URL.`);
+  }
+  if (!/\.(?:png|jpe?g|webp)$/i.test(parsed.pathname)) throw new Error(`Theme ${themeId} has an unsupported ${kind} asset type.`);
+  return value;
+}
 
 const WAR_TERMS_SUMMARY =
   'Your Torn API key is sent to SLINK only during authentication to verify your identity, faction, and whether your faction position can read faction attacks. The key is not stored by the War Worker. Public enemy-status checks run locally and submit only sanitized member status data. Live war rosters, retals, attack-ID deduplication, and collector leases are held by a per-war coordinator; only ten-minute loss, escape, and observed-online counters are retained in D1.';
@@ -127,7 +141,7 @@ function validateThemeCatalog(value) {
     const label = String(entry?.label || '').trim();
     const description = String(entry?.description || '').trim();
     const scope = entry?.scope === null || entry?.scope === undefined ? null : String(entry.scope).trim();
-    const ornament = entry?.ornament === 'coil' ? 'coil' : 'none';
+    const ornament = ['coil', 'halloween'].includes(entry?.ornament) ? entry.ornament : 'none';
     if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(id) || seen.has(id)) throw new Error('Theme ID is invalid or duplicated.');
     if (!label || label.length > 80 || !description || description.length > 180) throw new Error(`Theme ${id} has invalid display text.`);
     if (scope !== null && !/^slink\.theme\.[a-z0-9][a-z0-9-]{0,63}$/.test(scope)) throw new Error(`Theme ${id} has an invalid permission scope.`);
@@ -139,8 +153,16 @@ function validateThemeCatalog(value) {
       if (!THEME_TOKEN_NAMES.has(name) || !token || token.length > 320 || !/^[a-zA-Z0-9#(),.%+\-\s]+$/.test(token) || /url\s*\(|expression\s*\(/i.test(token)) throw new Error(`Theme ${id} contains a disallowed visual token.`);
       themeTokens[name] = token;
     }
+    let assets;
+    if (entry?.assets !== undefined && entry?.assets !== null) {
+      if (typeof entry.assets !== 'object' || Array.isArray(entry.assets)) throw new Error(`Theme ${id} has invalid assets.`);
+      assets = {
+        background:validateThemeAssetUrl(entry.assets.background, id, 'background'),
+        iconSheet:validateThemeAssetUrl(entry.assets.iconSheet, id, 'icon sheet')
+      };
+    }
     seen.add(id);
-    return { id, label, description, scope, swatch:entry.swatch.map(String), ornament, tokens:themeTokens };
+    return { id, label, description, scope, swatch:entry.swatch.map(String), ornament, ...(assets ? { assets } : {}), tokens:themeTokens };
   });
   if (!themes.some(theme => theme.id === 'slink-dark' && theme.scope === null)) throw new Error('Theme catalog must include the free slink-dark fallback.');
   return { schemaVersion:1, revision, updatedAt:String(value.updatedAt || ''), themes };
@@ -1014,4 +1036,6 @@ export default {
 };
 
 export const __test = { createToken, verifyToken, validateTornKey };
+
+
 

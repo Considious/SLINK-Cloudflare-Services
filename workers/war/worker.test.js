@@ -134,12 +134,17 @@ test('returns the full opponent membership IDs for inside-hit safety', () => {
 test('publishes only declarative visual data in the central theme catalog', () => {
   const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.themes.length, 5);
+  assert.equal(catalog.themes.length, 6);
   assert.ok(catalog.themes.every(theme => theme.id && theme.tokens && !JSON.stringify(theme).match(/<script|javascript:|url\s*\(/i)));
   const dragonsBreath = catalog.themes.find(theme => theme.id === 'slinky-dragons-breath');
   assert.equal(dragonsBreath?.label, "Dragon's Breath");
   assert.equal(dragonsBreath?.scope, 'slink.theme.dragons-breath');
   assert.equal(dragonsBreath?.ornament, 'coil');
+  const halloween = catalog.themes.find(theme => theme.id === 'halloween-2026');
+  assert.equal(halloween?.scope, 'slink.theme.halloween');
+  assert.equal(halloween?.ornament, 'halloween');
+  assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.jpg$/);
+  assert.match(halloween?.assets?.iconSheet || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);
   const permissionMigration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0010-dragons-breath-theme.sql'), 'utf8');
   assert.match(permissionMigration, /'slink\.theme\.dragons-breath'/);
@@ -165,3 +170,5 @@ test('leaves generic permission sessions and grants outside the War Worker', () 
   }
   assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);
 });
+
+
