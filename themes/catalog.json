@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-09-12.1",
-  "updatedAt": "2026-09-12T00:00:00Z",
+  "revision": "2026-10-20.1",
+  "updatedAt": "2026-10-20T00:00:00Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -189,6 +189,51 @@
         "--slink-metal": "#f2cfaa",
         "--slink-metal-dark": "#5d3527"
       }
+    },
+    {
+      "id": "halloween-2026",
+      "label": "Halloween 2026",
+      "description": "Exclusive 2026 haunted landscape with purple, green, and restrained pumpkin-orange lighting.",
+      "scope": "slink.theme.halloween",
+      "ornament": "halloween",
+      "swatch": ["#08050f", "#a72cff", "#75ff42"],
+      "assets": {
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-background.jpg",
+        "iconSheet": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-icons.png",
+        "packaged": true
+      },
+      "tokens": {
+        "--slink-bg": "#08050f",
+        "--slink-bg-raised": "#100b19",
+        "--slink-bg-control": "#181021",
+        "--slink-surface": "#0d0914",
+        "--slink-card": "#0b0811",
+        "--slink-control": "#1b1224",
+        "--slink-border": "rgba(205, 145, 255, .72)",
+        "--slink-border-soft": "rgba(185, 255, 159, .20)",
+        "--slink-text": "#f7f2ff",
+        "--slink-muted": "#c6b9d4",
+        "--slink-accent": "#a72cff",
+        "--slink-accent-alt": "#75ff42",
+        "--slink-ready": "#8dff65",
+        "--slink-warning": "#ff9a2f",
+        "--slink-error": "#ff6666",
+        "--slink-danger-bg": "#45151c",
+        "--slink-link": "#d7a6ff",
+        "--slink-shadow": "rgba(0, 0, 0, .88)",
+        "--slink-page-bg": "radial-gradient(circle at 14% 8%, rgba(159, 38, 255, .28), transparent 36%), radial-gradient(circle at 88% 88%, rgba(90, 255, 45, .18), transparent 38%), #07040c",
+        "--slink-topbar-bg": "linear-gradient(90deg, rgba(18, 9, 27, .95), rgba(5, 4, 9, .96) 52%, rgba(12, 22, 8, .94))",
+        "--slink-panel-bg": "linear-gradient(145deg, rgba(15, 10, 22, .91), rgba(5, 5, 8, .94))",
+        "--slink-button-bg": "linear-gradient(135deg, #6c159d, #21132f 55%, #357c1d)",
+        "--slink-selected-bg": "linear-gradient(135deg, #b727ff, #39144d 54%, #4fc326)",
+        "--slink-mark-bg": "linear-gradient(145deg, #cf89ff, #6a2491 42%, #151017 58%, #79f351)",
+        "--slink-glow-left": "rgba(120, 255, 62, .38)",
+        "--slink-glow-right": "rgba(178, 55, 255, .52)",
+        "--slink-metal": "#ecd8ff",
+        "--slink-metal-dark": "#654474"
+      }
     }
   ]
 }
+
+
