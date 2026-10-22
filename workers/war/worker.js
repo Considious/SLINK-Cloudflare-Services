@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.2-live-image-themes';
+const WORKER_VERSION = '0.8.3-theme-cache-refresh';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -175,9 +175,12 @@ async function fetchThemeCatalog(env, force = false) {
     const cached = await env.THEME_CATALOG.get(THEME_CATALOG_KV_KEY, 'json').catch(() => null);
     if (cached?.catalog && now - Number(cached.fetchedAt) < THEME_REFRESH_MS) return { catalog:validateThemeCatalog(cached.catalog), source:'kv' };
   }
-  const response = await fetch(THEME_CATALOG_URL, {
+  const catalogUrl = force ? `${THEME_CATALOG_URL}?refresh=${now}` : THEME_CATALOG_URL;
+  const response = await fetch(catalogUrl, {
     headers:{ Accept:'application/json', 'User-Agent':'SLINK-War-Theme-Catalog' },
-    cf:{ cacheEverything:true, cacheTtl:Math.floor(THEME_REFRESH_MS / 1000) }
+    cf:force
+      ? { cacheEverything:false, cacheTtl:0 }
+      : { cacheEverything:true, cacheTtl:Math.floor(THEME_REFRESH_MS / 1000) }
   });
   if (!response.ok) throw new Error(`Theme catalog fetch failed (${response.status}).`);
   const text = await readLimitedResponseText(response, MAX_BODY_BYTES);

@@ -143,7 +143,7 @@ test('publishes only declarative visual data in the central theme catalog', () =
   const halloween = catalog.themes.find(theme => theme.id === 'halloween-2026');
   assert.equal(halloween?.scope, 'slink.theme.halloween');
   assert.equal(halloween?.ornament, 'halloween');
-  assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.jpg$/);
+  assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.match(halloween?.assets?.iconSheet || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.equal(halloween?.assets?.packaged, true);
   assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);
@@ -153,6 +153,8 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.match(worker, /\/api\/themes/);
   assert.match(worker, /validateThemeCatalog/);
   assert.match(worker, /THEME_CATALOG_KV_KEY/);
+  assert.match(worker, /catalogUrl = force \?/);
+  assert.match(worker, /cacheTtl:0/);
 });
 
 test('leaves generic permission sessions and grants outside the War Worker', () => {
