@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-10-21.2",
-  "updatedAt": "2026-10-21T00:00:00Z",
+  "revision": "2026-10-22.1",
+  "updatedAt": "2026-10-22T00:00:00Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -9,7 +9,11 @@
       "description": "The standard free SLINK interface.",
       "scope": null,
       "ornament": "none",
-      "swatch": ["#162331", "#2f74ad", "#8fc9ff"],
+      "swatch": [
+        "#162331",
+        "#2f74ad",
+        "#8fc9ff"
+      ],
       "tokens": {
         "--slink-bg": "#121922",
         "--slink-bg-raised": "#202c39",
@@ -47,7 +51,11 @@
       "description": "Chrome coils with red and blue pursuit lighting.",
       "scope": "slink.theme.pursuit",
       "ornament": "coil",
-      "swatch": ["#05080d", "#ee2525", "#167ee7"],
+      "swatch": [
+        "#05080d",
+        "#ee2525",
+        "#167ee7"
+      ],
       "tokens": {
         "--slink-bg": "#04080d",
         "--slink-bg-raised": "#0b1119",
@@ -84,7 +92,11 @@
       "description": "Glossy black with purple and green tuner-style underglow.",
       "scope": "slink.theme.underglow",
       "ornament": "coil",
-      "swatch": ["#030405", "#a53dff", "#7bff45"],
+      "swatch": [
+        "#030405",
+        "#a53dff",
+        "#7bff45"
+      ],
       "tokens": {
         "--slink-bg": "#030405",
         "--slink-bg-raised": "#090b0d",
@@ -121,7 +133,11 @@
       "description": "Matte black, gunmetal, and polished silver.",
       "scope": "slink.theme.black-chrome",
       "ornament": "coil",
-      "swatch": ["#030303", "#656a70", "#f0f2f4"],
+      "swatch": [
+        "#030303",
+        "#656a70",
+        "#f0f2f4"
+      ],
       "tokens": {
         "--slink-bg": "#050607",
         "--slink-bg-raised": "#0d0f11",
@@ -158,7 +174,11 @@
       "description": "Obsidian, heat-darkened metal, and white-hot ember accents.",
       "scope": "slink.theme.dragons-breath",
       "ornament": "coil",
-      "swatch": ["#060302", "#e34710", "#ffd49a"],
+      "swatch": [
+        "#060302",
+        "#e34710",
+        "#ffd49a"
+      ],
       "tokens": {
         "--slink-bg": "#060302",
         "--slink-bg-raised": "#160a06",
@@ -196,11 +216,17 @@
       "description": "Exclusive 2026 haunted landscape with purple, green, and restrained pumpkin-orange lighting.",
       "scope": "slink.theme.halloween",
       "ornament": "halloween",
-      "swatch": ["#08050f", "#a72cff", "#75ff42"],
+      "swatch": [
+        "#08050f",
+        "#a72cff",
+        "#75ff42"
+      ],
       "assets": {
         "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-background.png",
         "iconSheet": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-icons.png",
-        "packaged": true
+        "packaged": true,
+        "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-brand.png",
+        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-chat.png"
       },
       "tokens": {
         "--slink-bg": "#08050f",
@@ -235,5 +261,3 @@
     }
   ]
 }
-
-
