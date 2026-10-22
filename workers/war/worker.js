@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.3-theme-cache-refresh';
+const WORKER_VERSION = '0.8.4-theme-brand-assets';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -159,6 +159,8 @@ function validateThemeCatalog(value) {
       assets = {
         background:validateThemeAssetUrl(entry.assets.background, id, 'background'),
         iconSheet:validateThemeAssetUrl(entry.assets.iconSheet, id, 'icon sheet'),
+        brandIcon:validateThemeAssetUrl(entry.assets.brandIcon, id, 'brand icon'),
+        chatIcon:validateThemeAssetUrl(entry.assets.chatIcon, id, 'chat icon'),
         packaged:entry.assets.packaged === true
       };
     }
