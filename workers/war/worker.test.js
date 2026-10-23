@@ -152,6 +152,8 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.equal(gothic?.scope, 'slink.theme.gothic-valentines');
   assert.equal(gothic?.ornament, 'gothic');
   assert.match(gothic?.assets?.frame || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
+  assert.match(gothic?.assets?.roseCorner || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
+  assert.match(gothic?.assets?.badgeIvory || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.svg$/);
   assert.deepEqual(Object.keys(gothic?.assets?.healthRoses || {}), ['100', '075', '050', '025', '004']);
   assert.deepEqual(Object.keys(gothic?.assets?.healthBlood || {}), ['100', '075', '050', '025', '004']);
   assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);

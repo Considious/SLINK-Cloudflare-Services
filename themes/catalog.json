@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-10-23.1",
+  "revision": "2026-10-23.2",
   "updatedAt": "2026-10-23T00:00:00Z",
   "themes": [
     {
@@ -275,6 +275,8 @@
         "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-rose-icon.png",
         "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-rose-icon.png",
         "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-frame.png",
+        "roseCorner": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-rose-corner.png",
+        "badgeIvory": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-badge-ivory.svg",
         "panelSmoke": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-smoke.png",
         "panelDamask": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-damask.png",
         "panelCrimson": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-crimson.png",

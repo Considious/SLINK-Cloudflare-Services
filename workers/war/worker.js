@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.5-gothic-valentines-theme';
+const WORKER_VERSION = '0.8.6-gothic-valentines-artwork';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -33,7 +33,7 @@ const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
 const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
 const THEME_ASSET_ORIGIN = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/';
-const THEME_DIRECT_ASSETS = Object.freeze(['background', 'iconSheet', 'brandIcon', 'chatIcon', 'frame', 'panelSmoke', 'panelDamask', 'panelCrimson', 'dividerLeft', 'dividerMiddle', 'dividerRight']);
+const THEME_DIRECT_ASSETS = Object.freeze(['background', 'iconSheet', 'brandIcon', 'chatIcon', 'frame', 'roseCorner', 'badgeIvory', 'panelSmoke', 'panelDamask', 'panelCrimson', 'dividerLeft', 'dividerMiddle', 'dividerRight']);
 const THEME_HEALTH_STATES = Object.freeze(['100', '075', '050', '025', '004']);
 const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
 const THEME_REFRESH_MS = 15 * 60 * 1000;
@@ -55,7 +55,7 @@ function validateThemeAssetUrl(raw, themeId, kind) {
   if (!value.startsWith(THEME_ASSET_ORIGIN) || parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error(`Theme ${themeId} has a disallowed ${kind} asset URL.`);
   }
-  if (!/\.(?:png|jpe?g|webp)$/i.test(parsed.pathname)) throw new Error(`Theme ${themeId} has an unsupported ${kind} asset type.`);
+  if (!/\.(?:png|jpe?g|webp|svg)$/i.test(parsed.pathname)) throw new Error(`Theme ${themeId} has an unsupported ${kind} asset type.`);
   return value;
 }
 
