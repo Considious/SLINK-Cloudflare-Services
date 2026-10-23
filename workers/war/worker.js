@@ -19,7 +19,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.4-theme-brand-assets';
+const WORKER_VERSION = '0.8.5-gothic-valentines-theme';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -33,6 +33,8 @@ const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
 const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
 const THEME_ASSET_ORIGIN = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/';
+const THEME_DIRECT_ASSETS = Object.freeze(['background', 'iconSheet', 'brandIcon', 'chatIcon', 'frame', 'panelSmoke', 'panelDamask', 'panelCrimson', 'dividerLeft', 'dividerMiddle', 'dividerRight']);
+const THEME_HEALTH_STATES = Object.freeze(['100', '075', '050', '025', '004']);
 const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
 const THEME_REFRESH_MS = 15 * 60 * 1000;
 const THEME_TOKEN_NAMES = new Set([
@@ -141,7 +143,7 @@ function validateThemeCatalog(value) {
     const label = String(entry?.label || '').trim();
     const description = String(entry?.description || '').trim();
     const scope = entry?.scope === null || entry?.scope === undefined ? null : String(entry.scope).trim();
-    const ornament = ['coil', 'halloween'].includes(entry?.ornament) ? entry.ornament : 'none';
+    const ornament = ['coil', 'halloween', 'gothic'].includes(entry?.ornament) ? entry.ornament : 'none';
     if (!/^[a-z0-9][a-z0-9-]{1,47}$/.test(id) || seen.has(id)) throw new Error('Theme ID is invalid or duplicated.');
     if (!label || label.length > 80 || !description || description.length > 180) throw new Error(`Theme ${id} has invalid display text.`);
     if (scope !== null && !/^slink\.theme\.[a-z0-9][a-z0-9-]{0,63}$/.test(scope)) throw new Error(`Theme ${id} has an invalid permission scope.`);
@@ -156,11 +158,15 @@ function validateThemeCatalog(value) {
     let assets;
     if (entry?.assets !== undefined && entry?.assets !== null) {
       if (typeof entry.assets !== 'object' || Array.isArray(entry.assets)) throw new Error(`Theme ${id} has invalid assets.`);
+      const healthAssets = (raw, kind) => {
+        if (raw === undefined || raw === null) return Object.fromEntries(THEME_HEALTH_STATES.map(state => [state, '']));
+        if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`Theme ${id} has invalid ${kind} assets.`);
+        return Object.fromEntries(THEME_HEALTH_STATES.map(state => [state, validateThemeAssetUrl(raw[state], id, `${kind} ${state}`)]));
+      };
       assets = {
-        background:validateThemeAssetUrl(entry.assets.background, id, 'background'),
-        iconSheet:validateThemeAssetUrl(entry.assets.iconSheet, id, 'icon sheet'),
-        brandIcon:validateThemeAssetUrl(entry.assets.brandIcon, id, 'brand icon'),
-        chatIcon:validateThemeAssetUrl(entry.assets.chatIcon, id, 'chat icon'),
+        ...Object.fromEntries(THEME_DIRECT_ASSETS.map(kind => [kind, validateThemeAssetUrl(entry.assets[kind], id, kind)])),
+        healthRoses:healthAssets(entry.assets.healthRoses, 'health roses'),
+        healthBlood:healthAssets(entry.assets.healthBlood, 'health blood'),
         packaged:entry.assets.packaged === true
       };
     }

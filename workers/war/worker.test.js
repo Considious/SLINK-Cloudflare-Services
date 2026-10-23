@@ -134,7 +134,7 @@ test('returns the full opponent membership IDs for inside-hit safety', () => {
 test('publishes only declarative visual data in the central theme catalog', () => {
   const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.themes.length, 6);
+  assert.equal(catalog.themes.length, 7);
   assert.ok(catalog.themes.every(theme => theme.id && theme.tokens && !JSON.stringify(theme).match(/<script|javascript:|url\s*\(/i)));
   const dragonsBreath = catalog.themes.find(theme => theme.id === 'slinky-dragons-breath');
   assert.equal(dragonsBreath?.label, "Dragon's Breath");
@@ -148,6 +148,12 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.match(halloween?.assets?.brandIcon || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.match(halloween?.assets?.chatIcon || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.equal(halloween?.assets?.packaged, true);
+  const gothic = catalog.themes.find(theme => theme.id === 'gothic-valentines');
+  assert.equal(gothic?.scope, 'slink.theme.gothic-valentines');
+  assert.equal(gothic?.ornament, 'gothic');
+  assert.match(gothic?.assets?.frame || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
+  assert.deepEqual(Object.keys(gothic?.assets?.healthRoses || {}), ['100', '075', '050', '025', '004']);
+  assert.deepEqual(Object.keys(gothic?.assets?.healthBlood || {}), ['100', '075', '050', '025', '004']);
   assert.deepEqual(dragonsBreath?.swatch, ['#060302', '#e34710', '#ffd49a']);
   const permissionMigration = fs.readFileSync(path.resolve(directory, '../../permissions/migrations/0010-dragons-breath-theme.sql'), 'utf8');
   assert.match(permissionMigration, /'slink\.theme\.dragons-breath'/);
@@ -157,8 +163,9 @@ test('publishes only declarative visual data in the central theme catalog', () =
   assert.match(worker, /THEME_CATALOG_KV_KEY/);
   assert.match(worker, /catalogUrl = force \?/);
   assert.match(worker, /cacheTtl:0/);
-  assert.match(worker, /brandIcon:validateThemeAssetUrl/);
-  assert.match(worker, /chatIcon:validateThemeAssetUrl/);
+  assert.match(worker, /THEME_DIRECT_ASSETS/);
+  assert.match(worker, /healthRoses:healthAssets/);
+  assert.match(worker, /healthBlood:healthAssets/);
 });
 
 test('leaves generic permission sessions and grants outside the War Worker', () => {

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-10-22.1",
-  "updatedAt": "2026-10-22T00:00:00Z",
+  "revision": "2026-10-23.1",
+  "updatedAt": "2026-10-23T00:00:00Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -257,6 +257,75 @@
         "--slink-glow-right": "rgba(178, 55, 255, .52)",
         "--slink-metal": "#ecd8ff",
         "--slink-metal-dark": "#654474"
+      }
+    },
+    {
+      "id": "gothic-valentines",
+      "label": "Gothic Valentines",
+      "description": "Steel, roses, damask, and life-responsive bloodwork from the Gothic Valentines art kit.",
+      "scope": "slink.theme.gothic-valentines",
+      "ornament": "gothic",
+      "swatch": [
+        "#09090a",
+        "#780d19",
+        "#f0e9d9"
+      ],
+      "assets": {
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-background.png",
+        "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-rose-icon.png",
+        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-rose-icon.png",
+        "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-frame.png",
+        "panelSmoke": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-smoke.png",
+        "panelDamask": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-damask.png",
+        "panelCrimson": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-panel-crimson.png",
+        "dividerLeft": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-divider-left.png",
+        "dividerMiddle": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-divider-middle.png",
+        "dividerRight": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-divider-right.png",
+        "healthRoses": {
+          "100": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-roses-100.png",
+          "075": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-roses-075.png",
+          "050": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-roses-050.png",
+          "025": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-roses-025.png",
+          "004": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-roses-004.png"
+        },
+        "healthBlood": {
+          "100": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-blood-100.png",
+          "075": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-blood-075.png",
+          "050": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-blood-050.png",
+          "025": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-blood-025.png",
+          "004": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/gothic-valentines-blood-004.png"
+        },
+        "packaged": true
+      },
+      "tokens": {
+        "--slink-bg": "#09090a",
+        "--slink-bg-raised": "#161316",
+        "--slink-bg-control": "#21191c",
+        "--slink-surface": "#100d0f",
+        "--slink-card": "#0d0b0c",
+        "--slink-control": "#25191d",
+        "--slink-border": "rgba(225, 211, 192, .72)",
+        "--slink-border-soft": "rgba(153, 32, 48, .36)",
+        "--slink-text": "#f3ede4",
+        "--slink-muted": "#c0b1aa",
+        "--slink-accent": "#780d19",
+        "--slink-accent-alt": "#c9b292",
+        "--slink-ready": "#d7c29f",
+        "--slink-warning": "#e39c57",
+        "--slink-error": "#ff6b75",
+        "--slink-danger-bg": "#4a0b14",
+        "--slink-link": "#ead0ad",
+        "--slink-shadow": "rgba(0, 0, 0, .92)",
+        "--slink-page-bg": "radial-gradient(circle at 18% 0, rgba(120, 13, 25, .30), transparent 37%), linear-gradient(145deg, #120e10, #050405)",
+        "--slink-topbar-bg": "linear-gradient(90deg, rgba(29, 12, 17, .97), rgba(7, 6, 7, .98) 52%, rgba(24, 15, 15, .97))",
+        "--slink-panel-bg": "linear-gradient(145deg, rgba(25, 19, 21, .94), rgba(8, 7, 8, .97))",
+        "--slink-button-bg": "linear-gradient(180deg, #55101a, #241318 55%, #100c0d)",
+        "--slink-selected-bg": "linear-gradient(135deg, #8b1422, #32161d 54%, #151112)",
+        "--slink-mark-bg": "linear-gradient(145deg, #eee4d6, #8a7470 38%, #281317 58%, #bf2435)",
+        "--slink-glow-left": "rgba(136, 17, 33, .42)",
+        "--slink-glow-right": "rgba(220, 199, 168, .28)",
+        "--slink-metal": "#e7ddd0",
+        "--slink-metal-dark": "#65595a"
       }
     }
   ]
