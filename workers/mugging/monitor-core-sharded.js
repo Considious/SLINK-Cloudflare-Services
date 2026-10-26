@@ -324,9 +324,18 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
         if (report.name && (!target.name || observedAt >= Number(target.last_seen_at || 0))) target.name = report.name;
         if (observedAt >= currentStatusAt) {
             if (report.status_state) {
+                const wasKnown = currentStatusAt > 0;
+                const wasMugHospital = core.isMugHospital(target);
+                const previousSignature = target.last_mug_signature || (wasMugHospital ? core.mugSignature(target) : '');
+                const mugHospital = core.isMugHospital(report);
+                const signature = core.mugSignature(report);
+                if (index.phase === 'monitoring' && wasKnown && mugHospital && signature !== previousSignature) {
+                    core.recordMug(target, observedAt, 'contributor_status', null, events);
+                }
                 target.status_state = report.status_state;
                 target.status_description = report.status_description;
                 target.status_until = report.status_until;
+                target.last_mug_signature = mugHospital ? signature : '';
             }
             if (report.level !== null) target.level = report.level;
             if (report.bounty_count !== null) target.bounty_count = report.bounty_count;
@@ -339,7 +348,7 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
         core.applyBattleStats(target, report, now);
         target.priority_multiplier = core.priorityMultiplier(target, now);
 
-        if (report.battle_stats_estimate !== null || report.fair_fight !== null) {
+        if (finitePositive(report.battle_stats_estimate) !== null || report.fair_fight !== null) {
             const ffShardNumber = fairFightShardForTarget(report.target_id);
             if (!fairFightUpdates.has(ffShardNumber)) fairFightUpdates.set(ffShardNumber, []);
             fairFightUpdates.get(ffShardNumber).push(report);
@@ -361,8 +370,14 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
             const entry = record.value.targets[key] || { id:report.target_id, assigned_at:now };
             const observedAt = Number(report.observed_at) || now;
             const isCurrent = observedAt >= (Number(entry.observed_at) || 0);
-            entry.observed_at = Math.max(Number(entry.observed_at) || 0, observedAt);
-            if (isCurrent && report.battle_stats_estimate !== null) entry.battle_stats_estimate = report.battle_stats_estimate;
+            const estimateAt = Number(report.battle_stats_observed_at) || (report.source === 'contributor_status' ? 0 : observedAt);
+            const previousAt = Number(entry.battle_stats_observed_at ?? entry.observed_at) || 0;
+            if (finitePositive(report.battle_stats_estimate) !== null &&
+                ((estimateAt > 0 && estimateAt >= previousAt) || finitePositive(entry.battle_stats_estimate) === null)) {
+                entry.battle_stats_estimate = report.battle_stats_estimate;
+                entry.battle_stats_observed_at = estimateAt;
+                entry.observed_at = Math.max(Number(entry.observed_at) || 0, estimateAt);
+            }
             if (isCurrent && report.fair_fight !== null) entry.fair_fight = report.fair_fight;
             record.value.targets[key] = entry;
         }
@@ -370,6 +385,14 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
         await putJson(env.MUGGING_BUCKET, fairFightShardKey(shardNumber), record.value);
     }
 
+    const clientReports = reports.filter(report => report.source !== 'fair_fight');
+    if (clientReports.length) {
+        index.client_reports = {
+            accepted:Number(index.client_reports?.accepted || 0) + clientReports.length,
+            last_received_at:now,
+            last_observed_at:Math.max(Number(index.client_reports?.last_observed_at) || 0, ...clientReports.map(report => report.observed_at))
+        };
+    }
     index.updated_at = now;
     index.summary = summarizeIndex(index, {});
     await writeIndex(env.MUGGING_BUCKET, indexRecord, index);
@@ -405,20 +428,23 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
     );
     const allTargets = shards.flatMap(shard => Object.values(shard.targets || {}));
     let estimable = 0;
+    const excluded = { invalid_or_self:0, no_estimate:0, federal:0, timed_unavailable:0, mug_cooldown:0, fair_fight_range:0 };
     const candidates = [];
     for (const target of allTargets) {
         const id = positiveInteger(target?.id);
         const targetBattleStats = finitePositive(target?.battle_stats_estimate);
-        if (!id || id === userId || targetBattleStats === null) continue;
+        if (!id || id === userId) { excluded.invalid_or_self++; continue; }
+        if (targetBattleStats === null) { excluded.no_estimate++; continue; }
         estimable++;
         const state = String(target?.status_state || 'Unknown');
-        if (/federal/i.test(state)) continue;
+        if (/federal/i.test(state)) { excluded.federal++; continue; }
         const statusUntilSeconds = normalizeUnixSeconds(target?.status_until);
         const statusBlockedUntil = /hospital|jail/i.test(state) ? statusUntilSeconds * 1000 : 0;
         const freeAt = Math.max(0, Number(target?.free_at) || 0);
-        if (Math.max(statusBlockedUntil, freeAt) > now) continue;
+        if (statusBlockedUntil > now) { excluded.timed_unavailable++; continue; }
+        if (freeAt > now) { excluded.mug_cooldown++; continue; }
         const roughFairFight = roughFairFightValue(userBattleStats, targetBattleStats);
-        if (roughFairFight < minimum || roughFairFight > maximum) continue;
+        if (roughFairFight < minimum || roughFairFight > maximum) { excluded.fair_fight_range++; continue; }
         const priorityMultiplier = Math.max(0.05, Number(target?.priority_multiplier) || 1);
         const score = Number((priorityMultiplier * roughFairFight).toFixed(6));
         candidates.push({ target, id, targetBattleStats, roughFairFight, priorityMultiplier, score, statusUntilSeconds });
@@ -434,7 +460,7 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
         estimate_kind:'rough',
         estimate_source:'cached battle-stat estimate',
         user_battle_stats:userBattleStats,
-        pool:{ total:allTargets.length, estimable, eligible:candidates.length },
+        pool:{ total:allTargets.length, estimable, eligible:candidates.length, excluded },
         targets:candidates.slice(0, limit).map(row => ({
             id:row.id,
             name:String(row.target?.name || `Player ${row.id}`).slice(0, 80),
@@ -557,6 +583,7 @@ function normalizeUnixSeconds(value) {
 }
 
 function finitePositive(value) {
+    if (typeof value === 'boolean') return null;
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? number : null;
 }
@@ -568,8 +595,7 @@ function boundedNumber(value, fallback, minimum, maximum) {
 }
 
 async function registerNewFairFightTargets(bucket, index, ids, now) {
-    const pendingRecord = await readJson(bucket, PENDING_KEY, { schema:1, ids:[], updated_at:0 });
-    const pending = new Set(pendingRecord.value.ids.map(Number).filter(Number.isInteger));
+    const pending = new Set();
     const grouped = new Map();
     for (const rawId of ids) {
         const id = positiveInteger(rawId);
@@ -590,9 +616,23 @@ async function registerNewFairFightTargets(bucket, index, ids, now) {
         record.value.updated_at = now;
         await putJson(bucket, fairFightShardKey(shardNumber), record.value);
     }
-    pendingRecord.value.ids = [...pending];
-    pendingRecord.value.updated_at = now;
-    await putJson(bucket, PENDING_KEY, pendingRecord.value);
+    await updatePendingIds(bucket, { add:[...pending] }, now);
+}
+
+async function updatePendingIds(bucket, { add = [], remove = [], rotate = [] }, now) {
+    const removed = new Set(remove), rotated = new Set(rotate);
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const record = await readJson(bucket, PENDING_KEY, { schema:1, ids:[], updated_at:0 });
+        const ids = (record.value.ids || []).map(Number).filter(id => positiveInteger(id) && !removed.has(id));
+        const next = { ...record.value, updated_at:now, ids:[...new Set([
+            ...ids.filter(id => !rotated.has(id)), ...rotate.filter(id => !removed.has(id)), ...add.filter(id => !removed.has(id))
+        ])] };
+        const written = await bucket.put(PENDING_KEY, JSON.stringify(next), {
+            ...jsonMetadata(), onlyIf:record.etag ? { etagMatches:record.etag } : { etagDoesNotMatch:'*' }
+        });
+        if (written) return next;
+    }
+    throw new Error('The Fair Fight pending queue changed during this update; work was not acknowledged.');
 }
 
 async function processFairFight(env, index, dirtyShards, dependencies, now) {
@@ -627,7 +667,6 @@ async function processFairFight(env, index, dirtyShards, dependencies, now) {
         const stale = Object.values(record.value.targets)
             .filter(row => {
                 const refreshedAt = Math.max(
-                    Number(row.last_attempted_at) || 0,
                     Number(row.last_success_at) || 0,
                     Number(row.observed_at) || 0
                 );
@@ -643,10 +682,9 @@ async function processFairFight(env, index, dirtyShards, dependencies, now) {
     if (!candidates.length) return { attempted:0, checked:0, shard:dailyShard };
 
     index.fair_fight_last_request_at = now;
-    const attemptedIds = new Set(candidates.map(row => row.id));
-    pendingRecord.value.ids = pendingIds.filter(id => !attemptedIds.has(id));
-    pendingRecord.value.updated_at = now;
-    await putJson(env.MUGGING_BUCKET, PENDING_KEY, pendingRecord.value);
+    // Preserve intent before the upstream call, including stale daily-shard
+    // targets: tomorrow's daily shard must not strand a failed request.
+    await updatePendingIds(env.MUGGING_BUCKET, { add:candidates.map(row => row.id) }, now);
     for (const candidate of candidates) candidate.entry.last_attempted_at = now;
     for (const [shardNumber, record] of records) {
         record.value.updated_at = now;
@@ -660,12 +698,16 @@ async function processFairFight(env, index, dirtyShards, dependencies, now) {
         const rows = await fetchFairFight(candidates.map(row => row.id), env.FFSCOUTER_API_KEY);
         const byId = new Map(rows.map(row => [positiveInteger(row?.player_id ?? row?.id ?? row?.user_id), row]));
         let checked = 0;
+        const successfulIds = new Set();
         for (const candidate of candidates) {
             const row = byId.get(candidate.id);
             if (!row) continue;
+            const estimate = finitePositive(row?.bs_estimate ?? row?.battle_stats_estimate ?? row?.total_stats);
+            if (estimate === null) continue;
             candidate.entry.last_success_at = now;
-            candidate.entry.battle_stats_estimate = finiteNumber(row?.bs_estimate ?? row?.battle_stats_estimate ?? row?.total_stats);
-            candidate.entry.fair_fight = finiteNumber(row?.fair_fight ?? row?.fairFight ?? row?.ff);
+            candidate.entry.battle_stats_estimate = estimate;
+            const fairFight = finitePositive(row?.fair_fight ?? row?.fairFight ?? row?.ff);
+            if (fairFight !== null) candidate.entry.fair_fight = fairFight;
             const stateShardNumber = Number(index.target_shards[String(candidate.id)]);
             if (Number.isInteger(stateShardNumber)) {
                 const stateShard = await getDirtyStateShard(env.MUGGING_BUCKET, dirtyShards, stateShardNumber);
@@ -682,16 +724,22 @@ async function processFairFight(env, index, dirtyShards, dependencies, now) {
                     }
                 }
             }
+            successfulIds.add(candidate.id);
             checked++;
         }
         for (const [shardNumber, record] of records) {
             record.value.updated_at = now;
             await putJson(env.MUGGING_BUCKET, fairFightShardKey(shardNumber), record.value);
         }
-        index.fair_fight_last_success_at = now;
-        index.fair_fight_last_error = '';
+        await updatePendingIds(env.MUGGING_BUCKET, {
+            remove:[...successfulIds], rotate:candidates.filter(row => !successfulIds.has(row.id)).map(row => row.id)
+        }, now);
+        if (checked > 0) index.fair_fight_last_success_at = now;
+        index.fair_fight_last_error = checked === candidates.length ? '' : `FFScouter returned usable estimates for ${checked}/${candidates.length} targets; remaining targets are queued for retry.`;
+        if (checked !== candidates.length) index.fair_fight_last_error_at = now;
         return { attempted:candidates.length, checked, shard:dailyShard };
     } catch (error) {
+        await updatePendingIds(env.MUGGING_BUCKET, { rotate:candidates.map(row => row.id) }, now);
         index.fair_fight_last_error_at = now;
         index.fair_fight_last_error = errorMessage(error).slice(0, 500);
         return { attempted:candidates.length, checked:0, shard:dailyShard };
@@ -791,6 +839,7 @@ function emptyIndex() {
         fair_fight_last_success_at:0,
         fair_fight_last_error_at:0,
         fair_fight_last_error:'',
+        client_reports:{ accepted:0, last_received_at:0, last_observed_at:0 },
         created_at:0,
         updated_at:0,
         last_run:null,
@@ -918,12 +967,16 @@ async function writeIndex(bucket, record, index) {
 function summarizeShard(shard, now) {
     let unavailable = 0;
     let lowValue = 0;
+    let withEstimate = 0;
     for (const target of Object.values(shard.targets || {})) {
         if (Number(target.free_at) > now) unavailable++;
+        if (finitePositive(target.battle_stats_estimate) !== null) withEstimate++;
         if (Number(target.low_value_ratio) >= 0.6 && Number(target.mug_report_count) >= 3) lowValue++;
     }
     return {
         target_count:Object.keys(shard.targets || {}).length,
+        targets_with_estimate:withEstimate,
+        targets_without_estimate:Object.keys(shard.targets || {}).length - withEstimate,
         unavailable_count:unavailable,
         consistently_low_value_count:lowValue,
         updated_at:now
@@ -938,6 +991,14 @@ function summarizeIndex(index, capacity) {
         Number(index.last_run?.external_calls) || 0;
     return {
         company_count:companyCount,
+        estimate_coverage:{
+            counted_shards:shardSummaries.filter(row => Number.isFinite(row.targets_with_estimate)).length,
+            total_shards:STATE_SHARD_COUNT,
+            with_estimate:shardSummaries.some(row => Number.isFinite(row.targets_with_estimate))
+                ? shardSummaries.reduce((sum, row) => sum + (Number(row.targets_with_estimate) || 0), 0) : null,
+            without_estimate:shardSummaries.some(row => Number.isFinite(row.targets_without_estimate))
+                ? shardSummaries.reduce((sum, row) => sum + (Number(row.targets_without_estimate) || 0), 0) : null
+        },
         target_count:shardSummaries.reduce((sum, row) => sum + Number(row.target_count || 0), 0),
         unavailable_count:shardSummaries.reduce((sum, row) => sum + Number(row.unavailable_count || 0), 0),
         consistently_low_value_count:shardSummaries.reduce(
@@ -990,6 +1051,12 @@ function statusFromIndex(index) {
             last_success_at:Number(index.fair_fight_last_success_at) || 0,
             last_error_at:Number(index.fair_fight_last_error_at) || 0,
             last_error:String(index.fair_fight_last_error || '')
+        },
+        client_contributions:{
+            reports_accepted:Number(index.client_reports?.accepted) || 0,
+            last_received_at:Number(index.client_reports?.last_received_at) || 0,
+            last_observed_at:Number(index.client_reports?.last_observed_at) || 0,
+            requires_donated_keys:false
         },
         summary:index.summary || null
     };
@@ -1079,10 +1146,13 @@ export const testing = Object.freeze({
     ensureShardedStorage,
     fairFightShardForTarget,
     contributorTaskAssignments,
+    processFairFight,
+    updatePendingIds,
     roughFairFightValue,
     roughMuggingAssignments,
     selectNextStateShard,
     stateShardForCompany,
     stateShardForTarget
 });
+
 

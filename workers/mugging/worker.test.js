@@ -6,6 +6,8 @@ import { describe, it } from 'node:test';
 import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
 import {
+    ingestMuggingReports as ingestShardedReports,
+    muggingStatus,
     contributorTaskAssignments,
     roughMuggingAssignments,
     runMuggingMonitor as runShardedMonitor,
@@ -280,7 +282,8 @@ describe('SLINK Mugging Intelligence Worker', () => {
         env.CONTRIBUTION_SERVICE = {
             async fetch() { return Response.json({ ok:true, user_id:999, scopes:['slink.mugging'] }); }
         };
-        const observedAt = Date.UTC(2026, 9, 6, 12, 0, 0);
+        // This authenticated route clamps old observations against wall time.
+        const observedAt = Date.now() - 1000;
         const response = await worker.fetch(new Request('https://mugging.example/api/contributor/reports', {
             method:'POST',
             headers:{ Authorization:'Bearer permission-session', 'Content-Type':'application/json' },
@@ -541,6 +544,111 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.deepEqual(pending.ids, []);
         assert.equal(ffShard.targets['123'].last_success_at, now);
     });
+    it('preserves positive target estimates against old clients sending zero or missing values', async () => {
+        const env=createEnv(),now=Date.now()-10000;
+        env.CONTRIBUTION_SERVICE={fetch:async()=>Response.json({ok:true,user_id:999,scopes:['slink.mugging']})};
+        await ingestShardedReports(env,[{target_id:123,name:'Test',source:'fair_fight',observed_at:now,battle_stats_estimate:500000}],now);
+        for(const value of [null,0,-1,'',true]){
+            const response=await worker.fetch(new Request('https://test/api/contributor/reports',{
+                method:'POST',headers:{Authorization:'Bearer synthetic','Content-Type':'application/json'},
+                body:JSON.stringify({client_id:'test',reports:[{player_id:123,observed_at:now+1000,state:'Okay',battleStatsEstimate:value}]})
+            }),env);
+            assert.equal(response.status,200);
+        }
+        const index=JSON.parse(env.MUGGING_BUCKET.values.get('mugging/state/v2/index.json').body);
+        const state=JSON.parse(env.MUGGING_BUCKET.values.get(`mugging/state/v2/targets/shard-${String(index.target_shards['123']).padStart(2,'0')}.json`).body);
+        assert.equal(state.targets['123'].battle_stats_estimate,500000);
+        assert.equal(state.targets['123'].battle_stats_checked_at,now);
+        const ff=JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/shards/shard-11.json').body);
+        assert.equal(ff.targets['123'].battle_stats_estimate,500000);
+        const result=await roughMuggingAssignments(env,{user_battle_stats:1000000,min_fair_fight:1,max_fair_fight:3},now+2000);
+        assert.equal(result.targets.length,1,'A status-only report must not remove an otherwise eligible target.');
+        await ingestShardedReports(env,[
+            {target_id:101,source:'fair_fight',observed_at:now,battle_stats_estimate:0},
+            {target_id:102,source:'fair_fight',observed_at:now,battle_stats_estimate:500000,status_state:'Hospital',status_until:Math.floor((now+600000)/1000)},
+            {target_id:103,source:'client_mug',observed_at:now,mugged_at:now,battle_stats_estimate:500000},
+            {target_id:104,source:'fair_fight',observed_at:now,battle_stats_estimate:100000000},
+            {target_id:106,source:'fair_fight',observed_at:now,battle_stats_estimate:500000,status_state:'Federal'}
+        ],now+2000);
+        const counted=await roughMuggingAssignments(env,{user_battle_stats:1000000,min_fair_fight:1,max_fair_fight:3},now+2000);
+        assert.deepEqual(counted.pool.excluded,{invalid_or_self:0,no_estimate:1,federal:1,timed_unavailable:1,mug_cooldown:1,fair_fight_range:1});
+        assert.equal(counted.pool.total,counted.pool.eligible+Object.values(counted.pool.excluded).reduce((sum,n)=>sum+n,0));
+    });
+
+    it('does not turn an old client estimate into a fresh one through a new status check',async()=>{
+        const env=createEnv(),now=Date.now()-20000;
+        await ingestShardedReports(env,[{target_id:123,source:'fair_fight',observed_at:now,battle_stats_estimate:500000}],now);
+        await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now+10000,battle_stats_estimate:300000,battle_stats_observed_at:now-1000}],now+10000);
+        const index=JSON.parse(env.MUGGING_BUCKET.values.get('mugging/state/v2/index.json').body);
+        const state=JSON.parse(env.MUGGING_BUCKET.values.get(`mugging/state/v2/targets/shard-${String(index.target_shards['123']).padStart(2,'0')}.json`).body);
+        assert.equal(state.targets['123'].battle_stats_estimate,500000);
+        assert.equal(state.targets['123'].battle_stats_checked_at,now);
+        const status=await muggingStatus(env);
+        assert.equal(status.client_contributions.reports_accepted,1);
+        assert.equal(status.client_contributions.requires_donated_keys,false);
+        assert.equal(status.client_contributions.last_received_at,now+10000);
+        assert.ok(status.summary.estimate_coverage.counted_shards>0);
+    });
+
+    it('keeps failed and partial FF work queued and retries at the normal ten-minute interval',async()=>{
+        const env=createEnv(),now=Date.now();env.FFSCOUTER_API_KEY='synthetic';
+        await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now},{target_id:124,source:'contributor_status',observed_at:now}],now);
+        const index=JSON.parse(env.MUGGING_BUCKET.values.get('mugging/state/v2/index.json').body),dirty=new Map();
+        const first=await shardedTesting.processFairFight(env,index,dirty,{fetchFairFight:async()=>{throw Error('synthetic outage');}},now);
+        assert.equal(first.checked,0);
+        assert.deepEqual(JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/pending.json').body).ids.sort(),[123,124]);
+        const early=await shardedTesting.processFairFight(env,index,dirty,{fetchFairFight:async()=>{throw Error('must not retry early');}},now+60000);
+        assert.equal(early.attempted,0);
+        const partial=await shardedTesting.processFairFight(env,index,dirty,{fetchFairFight:async()=>[{player_id:123,bs_estimate:500000}]},now+600000);
+        assert.equal(partial.checked,1);
+        assert.deepEqual(JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/pending.json').body).ids,[124]);
+        const lastSuccess=index.fair_fight_last_success_at;
+        const missing=await shardedTesting.processFairFight(env,index,dirty,{fetchFairFight:async()=>[{player_id:124,bs_estimate:0}]},now+1200000);
+        assert.equal(missing.checked,0);assert.equal(index.fair_fight_last_success_at,lastSuccess);
+        assert.deepEqual(JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/pending.json').body).ids,[124]);
+        const recovered=await shardedTesting.processFairFight(env,index,dirty,{fetchFairFight:async()=>[{player_id:124,bs_estimate:600000}]},now+1800000);
+        assert.equal(recovered.checked,1);
+        assert.deepEqual(JSON.parse(env.MUGGING_BUCKET.values.get('mugging/fair-fight/v2/pending.json').body).ids,[]);
+    });
+
+    it('can continue FF collection with zero donated Torn capacity',async()=>{
+        const env=createEnv(),now=Date.now();env.FFSCOUTER_API_KEY='synthetic';
+        await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now}],now);
+        const result=await runShardedMonitor(env,{
+            executePublicRequests:async()=>{throw Error('No donated Torn requests should be made.');},
+            fetchFairFight:async()=>[{player_id:123,bs_estimate:500000}]
+        },{now,maxCalls:0,capacity:{key_count:0}});
+        assert.equal(result.external_calls,0);assert.equal(result.fair_fight_checked,1);
+    });
+
+    it('records client-observed mug transitions without donated keys or repeated false mugs',async()=>{
+        const env=createEnv(),now=Date.now();
+        await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now,status_state:'Okay'}],now);
+        const key='mugging/state/v2/index.json';
+        const index=JSON.parse(env.MUGGING_BUCKET.values.get(key).body);index.phase='monitoring';
+        await env.MUGGING_BUCKET.put(key,JSON.stringify(index));
+        const observation={target_id:123,source:'contributor_status',observed_at:now+1000,status_state:'Hospital',status_description:'Mugged by someone',status_until:Math.floor((now+600000)/1000)};
+        const first=await ingestShardedReports(env,[observation],now+1000);
+        const second=await ingestShardedReports(env,[{...observation,observed_at:now+2000}],now+2000);
+        assert.equal(first.events,1);assert.equal(second.events,0);
+        const state=JSON.parse(env.MUGGING_BUCKET.values.get(`mugging/state/v2/targets/shard-${String(index.target_shards['123']).padStart(2,'0')}.json`).body);
+        assert.equal(state.targets['123'].last_mugged_at,now+1000);
+        assert.equal(state.targets['123'].free_at,testing.earliestFreeAt(now+1000));
+        const initial=await ingestShardedReports(env,[{...observation,target_id:456}],now+3000);
+        assert.equal(initial.events,0,'A first-ever hospital observation is only a baseline.');
+    });
+
+    it('preserves concurrently enqueued FF IDs through conditional queue writes',async()=>{
+        const env=createEnv(),bucket=env.MUGGING_BUCKET,key='mugging/fair-fight/v2/pending.json';
+        await shardedTesting.updatePendingIds(bucket,{add:[123]},1);
+        const original=bucket.put.bind(bucket);let injected=false;
+        bucket.put=async(name,body,options)=>{
+            if(name===key&&options?.onlyIf&&!injected){injected=true;await original(key,JSON.stringify({schema:1,ids:[123,456],updated_at:2}));}
+            return original(name,body,options);
+        };
+        await shardedTesting.updatePendingIds(bucket,{remove:[123],add:[789]},3);
+        assert.deepEqual(JSON.parse(bucket.values.get(key).body).ids,[456,789]);
+    });
 });
 
 
@@ -628,3 +736,4 @@ const levelCoreSource = readFileSync(new URL('./monitor-core.js', import.meta.ur
 const levelShardedSource = readFileSync(new URL('./monitor-core-sharded.js', import.meta.url), 'utf8');
 assert.match(levelCoreSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\?\.level/);
 assert.match(levelShardedSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\.target\?\.level/);
+

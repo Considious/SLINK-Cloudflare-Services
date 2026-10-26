@@ -608,9 +608,9 @@ function applyFairFightRows(state, requestedIds, rows, now) {
         if (!target) continue;
         const row = byId.get(id);
         if (!row) continue;
-        const estimate = finiteNumber(row?.bs_estimate ?? row?.battle_stats_estimate ?? row?.total_stats);
+        const estimate = positiveEstimate(row?.bs_estimate ?? row?.battle_stats_estimate ?? row?.total_stats);
         const fairFight = finiteNumber(row?.fair_fight ?? row?.fairFight ?? row?.ff);
-        if (estimate !== null && now >= Number(target.battle_stats_checked_at || 0)) {
+        if (estimate !== null && estimate > 0 && now >= Number(target.battle_stats_checked_at || 0)) {
             target.battle_stats_estimate = estimate;
             target.battle_stats_source = 'fair_fight';
             target.battle_stats_checked_at = now;
@@ -624,9 +624,10 @@ function applyFairFightRows(state, requestedIds, rows, now) {
 
 
 function applyBattleStats(target, report, now) {
-    const estimate = finiteNumber(report.battle_stats_estimate);
-    const observedAt = Number(report.observed_at) || now;
-    if (estimate !== null && (!target.battle_stats_checked_at || observedAt >= target.battle_stats_checked_at)) {
+    const estimate = positiveEstimate(report.battle_stats_estimate);
+    const observedAt = Number(report.battle_stats_observed_at) || (report.battle_stats_source === 'contributor_status' ? 0 : Number(report.observed_at) || now);
+    const unboundClientEstimate = report.battle_stats_source === 'contributor_status' && !observedAt;
+    if (estimate !== null && estimate > 0 && (!unboundClientEstimate || !(Number(target.battle_stats_estimate) > 0)) && (!target.battle_stats_checked_at || observedAt >= target.battle_stats_checked_at)) {
         if (report.battle_stats_source !== 'fair_fight' || !target.battle_stats_estimate) {
             target.battle_stats_estimate = estimate;
             target.battle_stats_source = report.battle_stats_source;
@@ -669,7 +670,8 @@ function normalizeReports(value, now) {
             level:levelValue === null ? null : Math.max(0, levelValue),
             bounty_count:bountyCountValue === null ? null : Math.max(0, Math.trunc(bountyCountValue)),
             bounty_total:bountyTotalValue === null ? null : Math.max(0, bountyTotalValue),
-            battle_stats_estimate:finiteNumber(row?.battle_stats_estimate ?? row?.battle_stats),
+            battle_stats_estimate:positiveEstimate(row?.battle_stats_estimate ?? row?.battle_stats),
+            battle_stats_observed_at:Math.max(0, Number(row?.battle_stats_observed_at) || 0),
             battle_stats_source:source === 'fair_fight' ? 'fair_fight' : source,
             fair_fight:finiteNumber(row?.fair_fight)
         });
@@ -814,6 +816,12 @@ function positiveInteger(value) {
 }
 
 
+function positiveEstimate(value) {
+    if (typeof value === 'boolean') return null;
+    const number = finiteNumber(value);
+    return number !== null && number > 0 ? number : null;
+}
+
 function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
     const numeric = Number(value);
@@ -851,4 +859,5 @@ export const testing = Object.freeze({
     selectFairFightCandidates,
     selectMuggingCompanies
 });
+
 

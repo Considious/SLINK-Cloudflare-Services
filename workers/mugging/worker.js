@@ -6,7 +6,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.6.1-hard-ff-ceiling';
+const WORKER_VERSION = '0.6.2-client-report-safety';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -27,7 +27,7 @@ const worker = {
         }
         if (url.pathname === '/api/health' && request.method === 'GET') {
             try {
-                return jsonResponse({ ok:true, version:WORKER_VERSION, ...await muggingStatus(env) });
+                return jsonResponse({ ok:true, version:WORKER_VERSION, ffscouter_configured:Boolean(env.FFSCOUTER_API_KEY), ...await muggingStatus(env) });
             } catch (error) {
                 return requestError(error);
             }
@@ -286,17 +286,20 @@ function normalizeContributorReports(rows, clientId, userId, now) {
             level:boundedInteger(row?.level, 0, 0, 100),
             bounty_count:boundedInteger(row?.bounty_count ?? row?.bountyCount, 0, 0, 100000),
             bounty_total:Math.max(0, Number(row?.bounty_total ?? row?.bountyTotal) || 0),
-            battle_stats_estimate:Number.isFinite(Number(row?.battle_stats_estimate ?? row?.battleStatsEstimate))
-                ? Math.max(0, Number(row?.battle_stats_estimate ?? row?.battleStatsEstimate))
-                : null,
-            fair_fight:Number.isFinite(Number(row?.fair_fight ?? row?.fairFight))
-                ? Math.max(0, Number(row?.fair_fight ?? row?.fairFight))
-                : null
+            battle_stats_estimate:positiveEstimate(row?.battle_stats_estimate ?? row?.battleStatsEstimate),
+            battle_stats_observed_at:Math.min(observedAt, Math.max(0, Number(row?.battle_stats_observed_at) || 0)),
+            fair_fight:null // Observer-dependent FF is not a shared raw estimate.
         });
     }
     return reports;
 }
 
+
+function positiveEstimate(value) {
+    if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : null;
+}
 
 async function authorizedClient(request, env, requiredScope) {
     if (!env.CONTRIBUTION_SERVICE || !env.CONTRIBUTION_SERVICE_TOKEN) {
@@ -417,4 +420,5 @@ export const testing = Object.freeze({
     normalizeContributorReports,
     runMonitor
 });
+
 
