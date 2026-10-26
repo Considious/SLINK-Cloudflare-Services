@@ -1,5 +1,24 @@
 # SLINK Mugging Intelligence Worker
 
+## Client-report safety candidate (not deployed)
+
+Branch: `audit/mugging-reliability`. Worker version: `0.6.2-client-report-safety-test`. This is a testing source change, not a production deployment or an R2 repair job. The deployment configuration retains the existing production name/bindings; do not run the deploy command without explicit release approval. No migration or secret change is required by this patch.
+
+- Missing, null, zero, negative or invalid target estimates are not allowed to replace a positive estimate. This protection also covers older clients. Client-specific Fair Fight values are not treated as portable raw target estimates.
+- Clients may supply `battle_stats_observed_at`. A fresh status observation does not make its cached stat estimate fresh. Legacy client estimates without a stat timestamp can fill a missing estimate but cannot replace an existing positive estimate. The target and FF metadata shard both retain this distinction.
+- Failed, omitted or unusable FF results stay queued. The existing ten-minute global request interval and 25-target batch limit remain. A failed attempt is not counted as a successful 14-day refresh. Failed IDs rotate behind other pending work; conditional pending-queue writes preserve concurrent additions.
+- Client status reports now detect new mug-related hospital transitions using the existing detection/cooldown rules while monitoring. First observations and repeated identical hospital states are baselines, not new mug events. This path does not require donated Torn keys.
+- Health now distinguishes `client_contributions` from the existing scheduled collector's donated-key counts. Client counters start when this instrumentation is installed, are accepted report counts (not unique active-client counts), and do not reconstruct historical activity. `ffscouter_configured` indicates only secret presence, not a successful authentication check.
+- `summary.estimate_coverage` counts positive/missing estimates in newly summarized state shards. `counted_shards` describes coverage; partial totals must not be presented as a full-pool audit. Assignment responses additionally expose disjoint exclusion counts under `pool.excluded`, without changing the hard Fair Fight ceiling or filtering rules.
+
+Matching extension/PDA Candidate 6 changes send unknown estimates as null, retain original stat timestamps, share acknowledged reports in five-minute batches, and retry failures after one minute with backoff capped at five minutes. Empty queues do not upload or manufacture successful-delivery timestamps. Existing limits/interactive reserves remain. Higher upload frequency increases Worker/R2 traffic; no production traffic or quota validation is claimed from local tests.
+
+Existing zeroed records are not silently reconstructed. Legacy IDs lost from the old pending queue are not mass-requeued by this patch; normal daily refresh remains, and an explicit recovery plan is still required. Company catalog discovery remains the scheduled backend path; this patch does not claim clients fully replace company discovery. FF collection remains server-side and can run with zero donated Torn capacity if its separate FF key and eligible work are available.
+
+Conditional pending-queue updates are not a transaction across all target, FF, index and status objects. Existing broader multi-object concurrency limitations remain outside this batch; local tests do not prove production-scale R2 ordering or cost.
+
+Run `npm test` for the local synthetic worker tests. Use the single extension-branch `TESTER-CHANGELOG.md` for the combined client test instructions; do not create a second user changelog here.
+
 This is a dedicated backend for mugging discovery and heat mapping. It does
 not share the Leveling Worker database, R2 bucket, scheduler, or target model.
 
@@ -41,9 +60,9 @@ one shard becomes eligible each day, so established targets are refreshed at
 most once every 14 days. Genuinely new targets enter a small immediate queue,
 receive their initial estimate at the next permitted Fair Fight interval, and
 then remain in their assigned rotation shard. A recent client battle-stat
-observation also satisfies the freshness window. Failed requests retain the
-same per-target cooldown so an upstream rate-limit cannot create an immediate
-retry loop.
+observation also satisfies the freshness window. Failed requests remain pending
+for a later permitted ten-minute interval, rather than receiving a successful
+14-day freshness window. Missing/zero estimates are not successful refreshes.
 
 On the first run after upgrading, the Worker automatically converts
 `mugging/state/v1.json` into the sharded layout. The legacy object is retained
@@ -88,5 +107,6 @@ broker invocation.
 
 `/api/assignments/rough`, `/api/contributor/tasks`, and `/api/contributor/reports` use the caller's live SLINK permission session and require `slink.mugging`. Internal routes use `X-SLINK-Service-Token`, or `X-Admin-Token` when the optional admin secret is configured.
 
-Phase 10 clients run contributor checks through their existing shared Torn API limiter, deduplicate observations locally by player, and publish queued results in acknowledged batches no more than once every six hours. Failed batches remain queued; acknowledged rows are removed. The shared Worker rejects self-observations, clamps observation age, and merges into R2 target/Fair Fight shards without per-observation D1 writes.
+Candidate 6 clients run contributor checks through their existing shared Torn API limiter, deduplicate observations locally by player, and normally publish queued results in acknowledged five-minute batches. Failed uploads retry with one-to-five-minute backoff. Older stable clients may still wait six hours until upgraded. Failed batches remain queued; acknowledged rows are removed only if their report ID still matches. The shared Worker rejects self-observations, clamps observation age, and merges into R2 target/Fair Fight shards without per-observation D1 writes.
+
 
