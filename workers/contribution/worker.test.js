@@ -28,7 +28,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.6-permission-sweep',
+            version: '0.4.10-ff-backup-test',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -55,10 +55,9 @@ describe('SLINK Contribution Service', () => {
             createHash('sha256').update(published).digest('hex'),
             TERMS_SHA256
         );
-        assert.equal(
-            createHash('sha256').update(body.summary).digest('hex'),
-            DISCLOSURE_SHA256
-        );
+        // Unified policy fingerprint identifies the full document, not the short summary.
+        assert.equal(body.disclosure_sha256, DISCLOSURE_SHA256);
+        assert.match(body.summary, /authenticated encryption/);
     });
 
 
@@ -428,17 +427,15 @@ describe('SLINK Contribution Service', () => {
         };
         const rolesSaved = await worker.fetch(
             jsonRequest(
-                'https://contribution.example/api/admin/factions/46978/officer-roles',
-                { roles:['Leader', 'Co-leader'] },
+                'https://contribution.example/api/admin/factions/46978/officer-access',
+                { assignments:{ 'slink.war.officer':{roles:['Leader', 'Co-leader']} } },
                 adminHeaders
             ),
             env
         );
         assert.equal(rolesSaved.status, 200);
         assert.deepEqual(
-            (await rolesSaved.json()).roles
-                .filter(role => role.active)
-                .map(role => role.name),
+            (await rolesSaved.json()).assignments['slink.war.officer'].roles,
             ['Co-leader', 'Leader']
         );
         const resolved = await testing.loadPermissions(
@@ -886,13 +883,16 @@ function createEnv() {
         '0012-mugging-permission.sql',
         '0013-quality-of-life-permissions.sql',
         '0014-feature-permission-sweep.sql',
-        '0017-faction-onboarding.sql'
+        '0017-faction-onboarding.sql',
+        '0018-officer-armory-oc.sql'
     ]) {
         sqlite.exec(readFileSync(
             new URL(`../../permissions/migrations/${migration}`, import.meta.url),
             'utf8'
         ));
     }
+    // Isolate grant-source tests from later migrations' real faction defaults.
+    sqlite.exec("DELETE FROM faction_scope_grants WHERE scope = 'slink.mugging'");
     return {
         PERMISSIONS_DB: new D1DatabaseAdapter(sqlite),
         USER_BACKUPS: new R2BucketAdapter(),

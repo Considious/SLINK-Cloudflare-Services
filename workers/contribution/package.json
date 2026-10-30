@@ -1,9 +1,7 @@
 {
-  "name": "slink-contribution-service",
-  "version": "0.3.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test worker.test.js"
-  }
+ "name":"slink-contribution-service",
+ "version":"0.3.0",
+ "private":true,
+ "type":"module",
+ "scripts":{"test":"node --test worker.test.js worker-backup.test.mjs"}
 }
