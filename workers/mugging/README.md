@@ -1,6 +1,18 @@
 # SLINK Mugging Intelligence Worker
 
-## Client-report safety release
+## Client FF recovery release — 0.6.3
+
+Known eligible estimates remain first. Missing estimates now fill remaining assignment slots as explicitly unchecked entries, with missing numeric fields omitted (never fabricated zero stats). Hospital/jail timers, federal status and post-mug cooldowns still block both groups; known opponents outside the hard FF range are never reclassified as unchecked. New clients label pending checks and do not show an Attack shortcut for unchecked entries.
+
+Extension0.19.14 and PDA0.4.124 run actual batched FFScouter checks from both Find targets and contribution work, using saved FF keys. Only public BSS estimates are uploaded; private/selected premium values, own stats and observer-dependent FF are excluded. At most200IDs/request, one batch/minute/client, ten-minute missing-result cache, failure backoff and six-second deadline. FF work does not consume Torn API capacity and can continue with zero spare Torn calls. Missing keys/no provider estimate remain honestly unchecked, not zero. Status contributions retain existing Torn limits/reserves.
+
+Successful estimates enter separate acknowledged pending entries, so a later status-only observation cannot erase them. Manual Find targets flushes successful estimates immediately, waits for acknowledgement and fetches assignments again once. Background work uses the existing acknowledged batch schedule. Failed uploads retain their entries. Estimate-only observations never pretend to refresh status/level/bounties. Conditional R2 shard writes retry against concurrent changes and retain newer positive estimates; old clients' zeros cannot erase them. No mass-zeroing, schema migration or broad R2 rewrite is required: active clients progressively recover the existing missing pool. Admin wildcard access is honored.
+
+PDA's release manifest must pin the new source commit, not the prior source release. Its CDN manifest path now follows main; fragments remain pinned by the manifest. Settings/storage identity and keys are unchanged. No unrelated testing-branch modules are promoted.
+
+Validation:28 local worker/pipeline cases pass, including four tests executing real extension service and extracted PDA refresh/contribution functions against the actual worker with SQLite/R2 fixtures. Two tests cover estimate write races and status freshness. Cross-repository cases explicitly require source checkouts: set SLINK_EXTENSION_SOURCE_ROOT to the extension repo root and SLINK_PDA_SOURCE_ROOT to its SLINK-PDA folder; without them these four cases skip rather than falsely claim execution. Client helper/report-safety tests pass. This is not authenticated live PDA/Chrome/R2 certification. After deployment, verify health version0.6.3-client-ff-recovery and increasing estimate coverage as updated keyed clients run.
+
+## Historical client-report safety release (0.6.2)
 
 Worker version: `0.6.2-client-report-safety`. Promoted independently from the audit branch to `main` for urgent release. Publishing this source does not itself confirm a running Cloudflare deployment or perform an R2 repair job. The deployment configuration retains the existing production name/bindings. No migration or secret change is required by this patch.
 
@@ -108,5 +120,4 @@ broker invocation.
 `/api/assignments/rough`, `/api/contributor/tasks`, and `/api/contributor/reports` use the caller's live SLINK permission session and require `slink.mugging`. Internal routes use `X-SLINK-Service-Token`, or `X-Admin-Token` when the optional admin secret is configured.
 
 Candidate 6 clients run contributor checks through their existing shared Torn API limiter, deduplicate observations locally by player, and normally publish queued results in acknowledged five-minute batches. Failed uploads retry with one-to-five-minute backoff. Older stable clients may still wait six hours until upgraded. Failed batches remain queued; acknowledged rows are removed only if their report ID still matches. The shared Worker rejects self-observations, clamps observation age, and merges into R2 target/Fair Fight shards without per-observation D1 writes.
-
 

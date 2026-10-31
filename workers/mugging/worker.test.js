@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, it } from 'node:test';
+import vm from 'node:vm';
 
 import worker, { testing as workerTesting } from './worker.js';
 import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core.js';
@@ -652,6 +655,63 @@ describe('SLINK Mugging Intelligence Worker', () => {
 });
 
 
+describe('Concurrent estimate protection',()=>{
+ it('retains a positive estimate inserted between a status read and its conditional write',async()=>{
+  const env=createEnv(),now=Date.now();await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now,status_state:'Okay'}],now);
+  const key='mugging/state/v2/targets/shard-'+String(shardedTesting.stateShardForTarget(123)).padStart(2,'0')+'.json';
+  const original=env.MUGGING_BUCKET.put.bind(env.MUGGING_BUCKET);let injected=false;
+  env.MUGGING_BUCKET.put=async(name,body,options)=>{if(name===key&&options?.onlyIf&&!injected){injected=true;const current=JSON.parse(env.MUGGING_BUCKET.values.get(key).body);Object.assign(current.targets['123'],{battle_stats_estimate:777000,battle_stats_checked_at:now+1});await original(key,JSON.stringify(current));}return original(name,body,options);};
+  await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now+2000,status_state:'Okay',battle_stats_estimate:0}],now+2000);
+  assert.equal(injected,true);const saved=JSON.parse(env.MUGGING_BUCKET.values.get(key).body);assert.equal(saved.targets['123'].battle_stats_estimate,777000);assert.equal(saved.targets['123'].last_checked_at,now+2000);
+ });
+ it('estimate-only client reports do not fabricate a fresh status observation',async()=>{
+  const env=createEnv(),now=Date.now();env.CONTRIBUTION_SERVICE={fetch:async()=>Response.json({ok:true,user_id:999,scopes:['admin.*']})};await ingestShardedReports(env,[{target_id:123,source:'contributor_status',observed_at:now-10000,status_state:'Okay',level:42}],now-10000);
+  const response=await worker.fetch(new Request('https://mugging.example/api/contributor/reports',{method:'POST',headers:{Authorization:'Bearer existing'},body:JSON.stringify({client_id:'test',reports:[{player_id:123,estimate_only:true,observed_at:now,battleStatsEstimate:20000,battle_stats_observed_at:now-1000}]})}),env);assert.equal(response.status,200);
+  const key='mugging/state/v2/targets/shard-'+String(shardedTesting.stateShardForTarget(123)).padStart(2,'0')+'.json',row=JSON.parse(env.MUGGING_BUCKET.values.get(key).body).targets['123'];assert.equal(row.level,42);assert.equal(row.last_checked_at,now-10000);assert.equal(row.battle_stats_estimate,20000);
+ });
+});
+
+describe('Full client Fair Fight recovery round trip',()=>{
+ const extensionRoot=process.env.SLINK_EXTENSION_SOURCE_ROOT?pathToFileURL(resolve(process.env.SLINK_EXTENSION_SOURCE_ROOT)+'/'):new URL('../../../extension/',import.meta.url),pdaRoot=process.env.SLINK_PDA_SOURCE_ROOT?pathToFileURL(resolve(process.env.SLINK_PDA_SOURCE_ROOT)+'/'):new URL('../../../pda/SLINK-PDA/',import.meta.url);
+ const available=existsSync(new URL('src/core/mugging-ff.js',extensionRoot))&&existsSync(new URL('src/30-dashboard-combat.part',pdaRoot));
+ for(const platform of ['extension','pda'])for(const background of [false,true])it(`${platform}: ${background?'background checks without spare Torn calls':'assign unchecked → FF batch → ACK → R2 → refreshed assignment'}`,{skip:available?false:'Requires client source checkouts; set SLINK_EXTENSION_SOURCE_ROOT and SLINK_PDA_SOURCE_ROOT.'},async()=>{
+  const env=createEnv(),now=Date.now();env.CONTRIBUTION_SERVICE={fetch:async()=>Response.json({ok:true,user_id:999,scopes:['admin.*']})};
+  await ingestShardedReports(env,[{target_id:1,name:'Known',source:'contributor_status',observed_at:now,status_state:'Okay',battle_stats_estimate:10000},{target_id:2,name:'Unchecked',source:'contributor_status',observed_at:now,status_state:'Okay'},{target_id:3,name:'Too strong',source:'contributor_status',observed_at:now,status_state:'Okay',battle_stats_estimate:1e12},{target_id:4,name:'Hospital',source:'contributor_status',observed_at:now,status_state:'Hospital',status_until:Math.floor(now/1000)+3600}],now);
+  const initial=await roughMuggingAssignments(env,{user_battle_stats:100000,limit:2},now);assert.equal(initial.targets[0].id,1);assert.equal(initial.targets[1].id,2);assert.equal(initial.targets[1].needs_estimate,true);assert.equal(initial.targets[1].fair_fight,undefined);
+  let ffCalls=0,uploads=0,tornCalls=0;
+  async function request(url,options={}){if(new URL(url).hostname==='ffscouter.com'){ffCalls++;const ids=new URL(url).searchParams.get('targets').split(',').map(Number);assert.ok(ids.length<=200);return ids.map(player_id=>({player_id,source:'bss',bs_estimate:20000,bss_public:400,last_updated:Math.floor(now/1000)}));}
+   if(new URL(url).hostname==='api.torn.com'){tornCalls++;throw Error('No new Torn call permitted in this test');}
+   if(url.endsWith('/api/contributor/tasks'))return {tasks:[{kind:'player.status',player_id:2,needs_estimate:true}]};
+   if(url.endsWith('/api/contributor/reports'))uploads++;
+   const response=await worker.fetch(new Request(url,{method:options.method||'GET',headers:{Authorization:'Bearer existing-session',...options.headers},body:options.body}),env);const body=await response.json();assert.equal(response.status,200,JSON.stringify(body));return body;
+  }
+  const shared=readFileSync(new URL('src/core/mugging-ff.js',extensionRoot),'utf8');
+  if(platform==='extension'){
+   const storage=new Map([['mugging.settings.v1',{enabled:true,minFairFight:1,maxFairFight:3,limit:2}],['access.settings.v1',{ffKey:'existing-ff-key'}],['player.ownBattleStats.v1',{total:100000,level:50,checkedAt:now}]]);
+   const S={core:{storage:{get:async(k,d)=>structuredClone(storage.get(k)??d),set:async(k,v)=>storage.set(k,structuredClone(v))},permissions:{hasScope:()=>true},http:{requestJson:(_cap,url,options)=>request(url,options)},tornApiLimiter:{getContributionCapacity:async()=>({available:0})}},services:{permissionAccess:{ensureSession:async()=>({token:'existing-session'})}},define(group,name,value){this[group][name]=value;}};
+   const context=vm.createContext({SLINK_EXTENSION:S,URL,Date,AbortController,setTimeout,clearTimeout,console,crypto});vm.runInContext(shared,context);vm.runInContext(readFileSync(new URL('src/background/mugging-service.js',extensionRoot),'utf8'),context);
+   if(background)await S.services.mugging.runContribution();else{const result=await S.services.mugging.refresh({userBattleStats:100000});assert.ok(result.targets.some(t=>t.id===2&&t.battleStatsEstimate===20000));assert.ok(!result.targets.some(t=>t.id===3||t.id===4));}
+   assert.equal((storage.get('mugging.contribution.pending.v1')||[]).length,0);
+  }else{
+   const source=readFileSync(new URL('src/30-dashboard-combat.part',pdaRoot),'utf8');
+   function extract(name){const start=source.search(new RegExp('(?:async )?function '+name+'\\('));assert.ok(start>=0,name);const tail=source.slice(start+1),match=/\n(?:async )?function /g.exec(tail);return source.slice(start,match?start+1+match.index:undefined);}
+   const state={settings:{mugging:{enabled:true,minFairFight:1,maxFairFight:3,limit:2}},caches:{ownBattleStats:{total:100000,level:50,checkedAt:now}}};
+   const context=vm.createContext({URL,Date,AbortController,setTimeout,clearTimeout,console,dataState:state,moduleState:{mugging:{}},muggingSyncBusy:false,muggingContributionBusy:false,
+    MUGGING_SYNC_INTERVAL_MS:300000,MUGGING_SYNC_RETRY_MS:60000,MUGGING_SYNC_BATCH_SIZE:100,MUGGING_SYNC_MAX_BATCHES:5,MUGGING_CONTRIBUTION_INTERVAL_MS:60000,MUGGING_ASSIGNMENT_REFRESH_MS:300000,
+    currentFfKey:()=> 'existing-ff-key',currentApiKey:()=> 'unused',requestJson:request,writeDataState:async()=>{},renderMugging:()=>{},hasScope:()=>true,muggingClientId:()=> 'pda-test',muggingContributionMode:()=> 'inactive',readApiLedger:()=>({}),contributionCapacity:()=>({available:0}),pdaStoredOwnBattleStats:()=>state.caches.ownBattleStats,touchMuggingActivity:()=>{},validPlayerIntelligenceId:v=>Number(v)>0?Number(v):null,finite:v=>v!=null&&Number.isFinite(Number(v))?Number(v):null,errorMessage:e=>e.message,
+    muggingRequest:(path,options)=>request('https://mugging.example'+path,{method:options.method,body:JSON.stringify(options.body)})});
+   context.global=context;vm.runInContext(shared,context);const declaration=source.slice(source.indexOf('const muggingFairFightChecks='),source.indexOf('\nfunction queueMuggingContributionObservation('));
+   vm.runInContext(declaration+['queueMuggingContributionObservation','muggingContributorReport','syncMuggingContributorReports','muggingCache','refreshMugging','runMuggingContribution'].map(extract).join('\n'),context);
+   if(background)await context.runMuggingContribution();else{await context.refreshMugging(false,{userBattleStats:100000,touch:false});assert.equal(context.moduleState.mugging.error,'');assert.ok(state.caches.mugging.targets.some(t=>t.id===2&&t.battle_stats_estimate===20000));}
+   assert.equal(Object.keys(state.caches.muggingPendingSync||{}).length,0);
+  }
+  assert.equal(ffCalls,1);assert.equal(uploads,1);assert.equal(tornCalls,0);
+  let result=await roughMuggingAssignments(env,{user_battle_stats:100000,limit:2},now+1000);assert.ok(result.targets.some(t=>t.id===2&&t.battle_stats_estimate===20000&&!t.needs_estimate));
+  await ingestShardedReports(env,[{target_id:2,source:'contributor_status',observed_at:now+2000,status_state:'Okay',battle_stats_estimate:0}],now+2000);
+  result=await roughMuggingAssignments(env,{user_battle_stats:100000,limit:2},now+3000);assert.equal(result.targets.find(t=>t.id===2).battle_stats_estimate,20000);
+ });
+});
+
 function createEnv() {
     const sqlite = new DatabaseSync(':memory:');
     sqlite.exec(readFileSync(new URL('./migrations/0001-mugging-coordination.sql', import.meta.url), 'utf8'));
@@ -736,4 +796,3 @@ const levelCoreSource = readFileSync(new URL('./monitor-core.js', import.meta.ur
 const levelShardedSource = readFileSync(new URL('./monitor-core-sharded.js', import.meta.url), 'utf8');
 assert.match(levelCoreSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\?\.level/);
 assert.match(levelShardedSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\.target\?\.level/);
-
