@@ -120,4 +120,3 @@ broker invocation.
 `/api/assignments/rough`, `/api/contributor/tasks`, and `/api/contributor/reports` use the caller's live SLINK permission session and require `slink.mugging`. Internal routes use `X-SLINK-Service-Token`, or `X-Admin-Token` when the optional admin secret is configured.
 
 Candidate 6 clients run contributor checks through their existing shared Torn API limiter, deduplicate observations locally by player, and normally publish queued results in acknowledged five-minute batches. Failed uploads retry with one-to-five-minute backoff. Older stable clients may still wait six hours until upgraded. Failed batches remain queued; acknowledged rows are removed only if their report ID still matches. The shared Worker rejects self-observations, clamps observation age, and merges into R2 target/Fair Fight shards without per-observation D1 writes.
-

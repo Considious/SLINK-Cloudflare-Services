@@ -1,7 +1,8 @@
+import '../shared/errors.js';
 /**
  * SLINK Leveling API Worker
  *
- * Release: 0.16.2-unified-terms
+ * Release: 0.16.3-readable-errors
  *
  * Update WORKER_VERSION for every Worker code change that may be deployed.
  * It is returned by the root and health routes and included in every response
@@ -21,7 +22,7 @@ import {
     shouldWriteDailyBackup
 } from './hourly-materializer.js';
 
-const WORKER_VERSION = '0.16.2-unified-terms';
+const WORKER_VERSION = '0.16.3-readable-errors';
 
 const MASTER_CSV_URL =
     'https://raw.githubusercontent.com/Considious/Torn-Scripts/main/' +
@@ -4116,6 +4117,7 @@ function corsHeaders() {
 
 
 function jsonResponse(data, status = 200) {
+    data = globalThis.SLINK_ERRORS.response(data,status,{provider:'SLINK leveling service'});
     return Response.json(data, {
         status,
         headers: corsHeaders()
@@ -4184,4 +4186,3 @@ export const testing = {
     schedulingShardsForCollector,
     verifySessionToken
 };
-

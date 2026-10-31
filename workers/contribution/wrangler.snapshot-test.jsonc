@@ -1,0 +1,10 @@
+{
+ "name":"slink-ff-backup-snapshot-audit-test",
+ "main":"snapshot-worker.js",
+ "compatibility_date":"2026-10-29",
+ "keep_vars":true,
+ "vars":{"FF_BACKUP_ENABLED":"false","FF_BACKUP_SNAPSHOTS":"false","FF_BACKUP_SNAPSHOT_HOURS":"24"},
+ "d1_databases":[{"binding":"PERMISSIONS_DB","database_name":"slink-permissions-audit-test","database_id":"REPLACE_WITH_TEST_DATABASE_ID"}],
+ "r2_buckets":[{"binding":"USER_BACKUPS","bucket_name":"slink-ff-backup-audit-test"}],
+ "triggers":{"crons":["0 * * * *"]}
+}

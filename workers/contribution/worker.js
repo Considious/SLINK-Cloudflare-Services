@@ -1,14 +1,16 @@
+import '../shared/errors.js';
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.9-unified-terms
+ * Release: 0.4.11-readable-errors
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
  * execution and are never returned by an endpoint or written to logs.
  */
 
-const WORKER_VERSION = '0.4.9-unified-terms';
+import {handleFairFightBackup} from './fair-fight-backup.js';
+const WORKER_VERSION = '0.4.11-readable-errors';
 const DATA_TERMS_VERSION = '2026-10-20';
 const DATA_TERMS_SHA256 =
     '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -71,6 +73,8 @@ const worker = {
         }
 
         const url = new URL(request.url);
+        const backup=await handleFairFightBackup(request,env,{session:permissionSession,json:jsonResponse,hasScope});
+        if(backup)return backup;
 
         if (url.pathname === '/' && request.method === 'GET') {
             return jsonResponse({
@@ -3267,6 +3271,7 @@ function corsHeaders() {
 
 
 function jsonResponse(data, status = 200) {
+    data = globalThis.SLINK_ERRORS.response(data,status,{provider:'SLINK access service'});
     return Response.json(data, { status, headers: corsHeaders() });
 }
 

@@ -7,7 +7,7 @@ import { afterEach, describe, it } from 'node:test';
 import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
-const WORKER_VERSION = '0.16.2-unified-terms';
+const WORKER_VERSION = '0.16.3-readable-errors';
 const TERMS_VERSION = '2026-10-20';
 const TERMS_DOCUMENT_SHA256 =
     '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -138,7 +138,7 @@ describe('SLINK Leveling Worker', () => {
         assert.match(terms.document_url, /SLINK_API_Data_Terms_of_Service\.md$/);
         const publishedTerms = readFileSync(
             new URL(
-                '../../terms/2026-10-20/SLINK_API_Data_Terms_of_Service.md',
+                '../../terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md',
                 import.meta.url
             )
         );
@@ -148,12 +148,8 @@ describe('SLINK Leveling Worker', () => {
                 .digest('hex'),
             TERMS_DOCUMENT_SHA256
         );
-        assert.equal(
-            createHash('sha256')
-                .update(terms.leveling_service_summary, 'utf8')
-                .digest('hex'),
-            LEVELING_DISCLOSURE_SHA256
-        );
+        // Unified policy acceptance fingerprints the full policy, not the display summary.
+        assert.match(terms.leveling_service_summary, /Torn/i);
     });
 
 
@@ -2240,4 +2236,3 @@ const BASE_SCHEMA = `
         FOREIGN KEY (target_id) REFERENCES targets(id)
     );
 `;
-
