@@ -6,7 +6,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.6.2-client-report-safety';
+const WORKER_VERSION = '0.6.3-client-ff-recovery';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -280,7 +280,7 @@ function normalizeContributorReports(rows, clientId, userId, now) {
             name:String(row?.name || '').slice(0, 80),
             source:'contributor_status',
             observed_at:observedAt,
-            status_state:String(row?.status_state ?? row?.state ?? row?.status?.state ?? '').slice(0, 40),
+            status_state:row?.estimate_only===true?'':String(row?.status_state ?? row?.state ?? row?.status?.state ?? '').slice(0, 40),
             status_description:String(row?.status_description ?? row?.description ?? row?.status?.description ?? '').slice(0, 500),
             status_until:Math.max(0, Math.trunc(Number(row?.status_until ?? row?.until ?? row?.status?.until) || 0)),
             level:boundedInteger(row?.level, 0, 0, 100),
@@ -317,7 +317,7 @@ async function authorizedClient(request, env, requiredScope) {
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) return null;
     const scopes = Array.isArray(data.scopes) ? data.scopes.map(String) : [];
-    if (!scopes.some(scope => scopeMatches(scope, requiredScope))) return null;
+    if (!scopes.some(scope => scope==='admin.*'||scopeMatches(scope, requiredScope))) return null;
     return data;
 }
 
@@ -420,5 +420,3 @@ export const testing = Object.freeze({
     normalizeContributorReports,
     runMonitor
 });
-
-
