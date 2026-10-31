@@ -1,3 +1,4 @@
+import '../shared/errors.js';
 import { DurableObject } from 'cloudflare:workers';
 import {
   ADMIN_SCOPE,
@@ -19,7 +20,7 @@ import {
   scopeMatches
 } from './worker-core.js';
 
-const WORKER_VERSION = '0.8.6-gothic-valentines-artwork';
+const WORKER_VERSION = '0.8.7-readable-errors-test';
 const SLINKY_FACTION_ID = 46978;
 const TERMS_VERSION = '2026-10-20';
 const TERMS_SHA256 = '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
@@ -79,6 +80,7 @@ function corsHeaders() {
 }
 
 function json(data, status = 200) {
+    data = globalThis.SLINK_ERRORS.response(data,status,{provider:'SLINK war service'});
   return Response.json(data, { status, headers:corsHeaders() });
 }
 
@@ -1048,6 +1050,3 @@ export default {
 };
 
 export const __test = { createToken, verifyToken, validateTornKey };
-
-
-

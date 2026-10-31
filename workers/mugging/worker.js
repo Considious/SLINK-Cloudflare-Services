@@ -1,3 +1,4 @@
+import '../shared/errors.js';
 import {
     contributorTaskAssignments,
     ingestMuggingReports,
@@ -6,7 +7,7 @@ import {
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.6.3-client-ff-recovery';
+const WORKER_VERSION = '0.6.4-readable-errors-test';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -390,6 +391,7 @@ function requestError(error) {
 
 
 function jsonResponse(body, status = 200) {
+    body = globalThis.SLINK_ERRORS.response(body,status,{provider:'SLINK mugging service'});
     return Response.json(body, { status, headers:corsHeaders() });
 }
 
