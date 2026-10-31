@@ -20,6 +20,45 @@ afterEach(() => {
 
 
 describe('SLINK Contribution Service', () => {
+    it('returns valid sign-in JSON for a faction-only member and for a member without grants', async () => {
+        const env = createEnv();
+        const authBody = {
+            api_key:'member-public-test-key',
+            terms_accepted:true,
+            terms_version:'2026-10-20',
+            terms_sha256:TERMS_SHA256
+        };
+        globalThis.fetch = tornFetch({
+            accessType:'Public Only', accessLevel:1,
+            userId:9002, userName:'Faction-only member', factionId:46978,
+            factionPosition:'Member'
+        });
+        const member = await worker.fetch(jsonRequest(
+            'https://contribution.example/api/permissions/auth', authBody
+        ), env);
+        assert.equal(member.status,200);
+        assert.match(member.headers.get('Content-Type'),/application\/json/);
+        const data = await member.json();
+        assert.equal(data.authenticated,true);
+        assert.ok(data.session_token);
+        assert.ok(data.scopes.includes('slink.level'));
+        assert.ok(!data.scopes.includes('admin.*'));
+        assert.equal(data.scope_sources['slink.level'],'faction');
+        assert.deepEqual(data.roles,['member']);
+        assert.ok(!JSON.stringify(data).includes(authBody.api_key));
+        globalThis.fetch = tornFetch({
+            accessType:'Public Only', accessLevel:1,
+            userId:9003, userName:'No grants', factionId:0
+        });
+        const denied = await worker.fetch(jsonRequest(
+            'https://contribution.example/api/permissions/auth', authBody
+        ), env);
+        assert.equal(denied.status,403);
+        const failure = await denied.json();
+        assert.equal(failure.ok,false);
+        assert.match(failure.error,/active feature permission/);
+        assert.equal(failure.error_code,'SLINK_ACCESS_DENIED');
+    });
     it('publishes fingerprinted donation terms and health', async () => {
         const env = createEnv();
         const health = await worker.fetch(
