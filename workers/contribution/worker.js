@@ -10,6 +10,7 @@ import '../shared/errors.js';
  */
 
 import {handleFairFightBackup} from './fair-fight-backup.js';
+import {handleFactionNode} from '../faction-node/central.js';
 const WORKER_VERSION = '0.4.11-readable-errors';
 const DATA_TERMS_VERSION = '2026-10-20';
 const DATA_TERMS_SHA256 =
@@ -68,6 +69,8 @@ const textEncoder = new TextEncoder();
 
 const worker = {
     async fetch(request, env, ctx) {
+        const factionNode = await handleFactionNode(request, env, {session:permissionSession,hasScope});
+        if (factionNode) return factionNode;
         if (request.method === 'OPTIONS') {
             return new Response(null, { status: 204, headers: corsHeaders() });
         }

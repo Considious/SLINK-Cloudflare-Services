@@ -1,0 +1,27 @@
+# Faction chat — what to test
+
+Not ready for general testing yet: the chat-window controls are still being connected. Use this checklist once a test installation is available.
+
+## What is being added
+
+- Faction-owned rooms alongside Torn chat, including officers-only and selected-member rooms.
+- Separate room access and speaking permission, with timed mutes and temporary restrictions.
+- Replies, history, unread counts and editing/deleting your own messages.
+- Leader/moderator controls and optional links with another consenting faction.
+- Media messages using SLINK's existing GIF/sticker tools.
+
+## Please try these
+
+- Refresh and change Torn pages. Check messages, drafts and your scroll position.
+- Try entering a room you were not assigned to; it should stay inaccessible.
+- Have a Leader mute you while the room is open. Reading should work, sending should stop immediately, and the chosen expiry should restore it.
+- Remove access while someone is connected. Reopening or changing devices must not bypass the restriction.
+- Let temporary access expire. Check that it ends without manual cleanup.
+- Change one permission and confirm other permissions stay unchanged.
+- Reply, edit and delete your own messages. Changing another person's message without moderator permission should be refused.
+- Reconnect after sending. Saved messages should remain, without duplicates.
+- Link two test factions. Both Leaders must approve; either can disconnect the link.
+- Take the other test node offline. Local chat should continue and remote delivery trouble should be clear.
+- Try themes, narrow screens, scrolling and normal Torn chat. Nothing should overlap controls or interrupt native conversations.
+
+Report what you clicked, what you expected, what happened, and extension or PDA. Never post API keys, private configuration, tokens or private conversations.
