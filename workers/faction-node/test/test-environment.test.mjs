@@ -21,7 +21,7 @@ test('test wrapper blocks unrelated APIs and wrong deployment targets without ex
  for(const path of ['/api/user-backup','/api/admin/scopes','/api/chat/setup-token','/api/chat/revoke'])assert.equal((await worker.fetch(new Request(TEST_ORIGIN+path),env)).status,404);
  assert.equal((await worker.fetch(new Request('https://other.example.test/'),env)).status,503);
  const health=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/health'),env)).json();assert.equal(health.configured,false);assert.equal(health.test_only,true);
- const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);
+ const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);assert.equal(health.terms.version,terms.terms.version);assert.equal(health.terms.sha256,terms.terms.sha256);assert.equal(health.version,'0.1.2-policy-sync');
  const origin='chrome-extension://'+'a'.repeat(32),protectedRequest=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:origin}}),{...env,PERMISSIONS_DB:{}});assert.equal(protectedRequest.status,401);assert.equal(protectedRequest.headers.get('Access-Control-Allow-Origin'),origin);
  const foreign=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:'https://untrusted.example'}}),{...env,PERMISSIONS_DB:{}});assert.equal(foreign.status,403);
 });
