@@ -21,12 +21,12 @@ In the existing **slink-chat-central-test** Worker, connect GitHub through Setti
 
 - Repository: `Considious/SLINK-Cloudflare-Services`
 - Deployment/production branch: `feature/faction-node-v1` (Cloudflare's label does not mean GitHub main)
-- Root directory: `workers/faction-node`
-- Build command: `npm ci`
-- Deploy command: `npx wrangler deploy --config wrangler.central-test.jsonc`
-- Do not enable deployment from other branches. If an unavoidable non-production command is required, use `npx wrangler versions upload --config wrangler.central-test.jsonc`, never the default unrelated configuration.
+- Root directory: `workers/faction-node/test-central`
+- Build command: `npm --prefix .. ci`
+- Deploy command: `node ../node_modules/wrangler/bin/wrangler.js deploy`
+- Do not enable deployment from other branches. If an unavoidable non-production command is required, use `node ../node_modules/wrangler/bin/wrangler.js versions upload`, never the default unrelated configuration.
 
-Inspect the setup screen before the first deployment. The selected Worker must be slink-chat-central-test, and the explicit configuration filename must be retained. Do not accept an automatic config rewrite or Worker rename without reviewing it. A local package-only dry run of this configuration succeeded; its optional outside-workspace log write was denied. No online deployment has been performed by the agent.
+Inspect the setup screen before the first deployment. The selected Worker must be slink-chat-central-test. The dedicated root contains its own standard wrangler.jsonc, so both dashboard discovery and deployment select the same name. The parent folder's generic node configuration must NOT be renamed to fix a dashboard warning. The build installs the existing parent's lockfile-pinned tools; it does not duplicate Worker code or dependency lockfiles. A local package-only dry run from the dedicated root succeeded; no online deployment has been performed by the agent.
 
 This entry point reuses the established permission auth implementation, but exposes only chat and permission-auth/terms routes. It has no scheduled collector, production R2 binding, donation, backup or generic admin interface. Its issuer/target guard rejects execution under a different origin.
 

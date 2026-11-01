@@ -24,6 +24,7 @@ test('test wrapper blocks unrelated APIs and wrong deployment targets without ex
  const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);
 });
 test('test deployment has only its new D1 database and no production buckets, schedules or secrets',async()=>{
- const config=JSON.parse(await readFile(new URL('../wrangler.central-test.jsonc',import.meta.url),'utf8'));
+ const config=JSON.parse(await readFile(new URL('../test-central/wrangler.jsonc',import.meta.url),'utf8'));
+ assert.equal(config.main,'../central-test-worker.js');await readFile(new URL('../test-central/'+config.main,import.meta.url),'utf8');
  assert.equal(config.name,'slink-chat-central-test');assert.equal(config.vars.CHAT_CENTRAL_ISSUER,TEST_ORIGIN);assert.equal(config.d1_databases[0].database_id,'9a10280e-47d7-4a43-aff9-7eca42f12b6c');assert.equal(config.r2_buckets,undefined);assert.equal(config.triggers,undefined);assert.equal(JSON.stringify(config).includes('2debd2fe-69b6-42e3-acc9-2a567d170928'),false);
 });
