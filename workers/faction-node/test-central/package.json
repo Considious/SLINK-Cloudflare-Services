@@ -1,0 +1,15 @@
+{
+  "name": "slink-faction-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "setup": "node setup.mjs",
+    "dev": "wrangler dev",
+    "test": "node --test test/*.test.mjs",
+    "check": "wrangler deploy --dry-run --outdir .check",
+    "upgrade": "node setup.mjs --upgrade"
+  },
+  "devDependencies": { "wrangler": "4.156.0", "miniflare": "4.20260730.0", "esbuild": "0.28.2" }
+}

@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.check/
+.dev.vars
+node-config.json
+*.pem
+*.key
+wrangler.local.json
+node-config.json.tmp
+wrangler.local.json.tmp
