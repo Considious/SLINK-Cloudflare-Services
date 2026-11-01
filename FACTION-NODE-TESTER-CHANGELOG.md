@@ -10,6 +10,7 @@ Preview build: the faction chat service must be configured before online testing
 - Leader/moderator controls and optional links with another consenting faction.
 - Media messages using SLINK's existing GIF/sticker tools.
 - Safer room-save retries, lighter typing updates and limits on repeated reconnect attempts during connection trouble.
+- Cloudflare-hosted test setup: private node keys stay in Cloudflare, with no local launcher or secret copying.
 
 ## Please try these
 
@@ -26,5 +27,6 @@ Preview build: the faction chat service must be configured before online testing
 - Link two test factions. Both Leaders must approve; either can disconnect the link.
 - Take the other test node offline. Local chat should continue and remote delivery trouble should be clear.
 - Try themes, narrow screens, scrolling and normal Torn chat. Nothing should overlap controls or interrupt native conversations.
+- After the node is deployed, finish setup on its web page. Reopening setup must preserve the same node and rooms; an unassigned administrator must not become a Chat Leader automatically.
 
 Report what you clicked, what you expected, what happened, and extension or PDA. Never post API keys, private configuration, tokens or private conversations.

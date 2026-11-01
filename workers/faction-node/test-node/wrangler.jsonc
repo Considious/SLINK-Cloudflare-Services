@@ -1,0 +1,11 @@
+{
+ "name":"slink-faction-node-46978-test",
+ "main":"../hosted-test-worker.js",
+ "compatibility_date":"2026-08-06",
+ "workers_dev":true,
+ "keep_vars":true,
+ "durable_objects":{"bindings":[{"name":"IDENTITY","class_name":"HostedTestIdentity"},{"name":"DIRECTORY","class_name":"FactionDirectory"},{"name":"ROOMS","class_name":"ChatRoom"}]},
+ "migrations":[{"tag":"faction-node-hosted-v1","new_sqlite_classes":["HostedTestIdentity","FactionDirectory","ChatRoom"]}],
+ "vars":{"SLINK_NODE_ID":"slink-node-46978-hosted-test","SLINK_FACTION_ID":"46978","SLINK_CENTRAL_URL":"https://slink-chat-central-test.richard-johnson554.workers.dev","ALLOWED_ORIGINS":"https://www.torn.com","RETENTION_DAYS":"30","MAX_ROOM_MESSAGES":"10000"},
+ "observability":{"enabled":false}
+}

@@ -1,5 +1,7 @@
 # SLINK Faction Node
 
+**Owner test installation: [Cloudflare website + GitHub setup](WEB-SETUP.md).** This is the supported owner workflow. It requires no local programs, terminal, launcher or downloaded secrets. The CLI sections below describe the optional developer installer, not steps this owner needs to perform.
+
 Faction-owned chat for SLINK. Your faction runs a small service in **its own Cloudflare account**, where its rooms, messages and settings are stored. SLINK Central verifies users and supplies the address of your faction's service; Central does not store the conversations.
 
 **Development build — not ready for general installation.** Backend, setup wizard, Torn chat-bar interface, Leader controls and extension/PDA adapters are implemented on the feature branch and have local test coverage. Real Cloudflare deployment, Torn-page/CSP and physical PDA acceptance checks remain. These clients need the new Central routes, which have NOT been deployed to the live service. Downloading this package does not update the existing live SLINK services.

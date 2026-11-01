@@ -38,6 +38,8 @@ The new routes are isolated under `/api/chat/`. Existing permission/session requ
 
 ## Remaining production gates
 
+The owner-only hosted test flow is documented in WEB-SETUP.md. Its public bootstrap handler is confined to the exact preapproved test Central and test-node HTTPS origins, faction 46978 and initial Leader 3853023; it must never be enabled for arbitrary customers or copied into production. Central fetches a fresh nonce-bound registration proof directly from that fixed node, then reuses the existing registration/renewal validation. Caller-supplied endpoint/key/Leader selection is not accepted. Revoked/different registrations cannot be replaced. A D1 setup gate bounds attempts to one per ten seconds, with a short-lived, deterministic per-window setup token. Identity RPC material is private to the node Worker; HTTP setup proof/certificate responses never expose its private key. The Identity DO storage is therefore a credential store and must not be deleted/reset as an update shortcut. This is controlled test preauthorization, not a completed general customer onboarding authorization design.
+
 - Real clean-account OAuth/deployment, routing and renewal exercise.
 - Real deployed hibernation/resume and billing measurements (local workerd is not proof of eviction).
 - Load tests of reconnect-resistant abuse limits and Central endpoint abuse protection.

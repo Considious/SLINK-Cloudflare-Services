@@ -1,5 +1,7 @@
 # Owner's isolated test environment
 
+**Use [WEB-SETUP.md](WEB-SETUP.md) for the current deployment workflow.** The owner requires GitHub and Cloudflare's website only. Local installers, launchers, terminal commands, downloaded secret files and manual node-key copying are not required.
+
 Test only. Nothing here deploys to main or modifies existing live SLINK resources.
 
 - Central: `https://slink-chat-central-test.richard-johnson554.workers.dev`
@@ -22,20 +24,20 @@ In the existing **slink-chat-central-test** Worker, connect GitHub through Setti
 - Repository: `Considious/SLINK-Cloudflare-Services`
 - Deployment/production branch: `feature/faction-node-v1` (Cloudflare's label does not mean GitHub main)
 - Root directory: `workers/faction-node/test-central`
-- Build command: `npm --prefix .. ci`
-- Deploy command: `node ../node_modules/wrangler/bin/wrangler.js deploy`
-- Do not enable deployment from other branches. If an unavoidable non-production command is required, use `node ../node_modules/wrangler/bin/wrangler.js versions upload`, never the default unrelated configuration.
+- Build command: `npm ci`
+- Deploy command: `npx wrangler deploy`
+- Do not enable deployment from other branches. Both deployment folders contain their own lockfile-pinned package files.
 
-Inspect the setup screen before the first deployment. The selected Worker must be slink-chat-central-test. The dedicated root contains its own standard wrangler.jsonc, so both dashboard discovery and deployment select the same name. The parent folder's generic node configuration must NOT be renamed to fix a dashboard warning. The build installs the existing parent's lockfile-pinned tools; it does not duplicate Worker code or dependency lockfiles. A local package-only dry run from the dedicated root succeeded; no online deployment has been performed by the agent.
+Inspect the setup screen before the first deployment. The selected Worker must be slink-chat-central-test. Each dedicated root contains its own standard wrangler.jsonc and package/lock files, so dashboard discovery and deployment select the same name without parent-directory commands. Runtime code remains shared. The parent folder's generic node configuration must NOT be renamed to fix a dashboard warning. Both package-only dry runs succeeded; no online deployment has been performed by the agent.
 
 This entry point reuses the established permission auth implementation, but exposes only chat and permission-auth/terms routes. It has no scheduled collector, production R2 binding, donation, backup or generic admin interface. Its issuer/target guard rejects execution under a different origin.
 
 ## Still required after the source is deployed
 
 1. Generate fresh **test-only** permission signing material (`API_KEY_ENCRYPTION_KEY`) and a dedicated P-256 Central key (`CHAT_SIGNING_PRIVATE_JWK`). Add them as runtime secrets, not public build variables. Never copy production secrets or post private keys in chat/GitHub. Until configured, the health response intentionally says `configured:false`.
-2. Provision a short-lived setup token in this test database bound to faction 46978, Leader 3853023 and the exact test node origin. The test entry point deliberately does not expose admin setup/revoke APIs or grant admin privileges to obtain that token. Use a reviewed private provisioning step; do not publish a reusable token in SQL/source.
-3. Run the existing node setup wizard against this test issuer, targeting only the designated placeholder node. It generates the persistent private identity and deploys both SQLite Durable Objects. Preserve its private configuration. Do not manually invent the node ID or use the generic unregistered example config over this node.
+2. Deploy the test node from the repository with root `workers/faction-node/test-node`, build `npm ci`, deploy `npx wrangler deploy`. Its configuration creates/binds all three SQLite Durable Object classes.
+3. Open the node's `/setup` page and click Finish setup. This hosted flow keeps the private key in Cloudflare and uses the exact preapproved test endpoint/faction/Leader, without an admin grant. It needs no local tools, manually copied node keys or additional token SQL. Details/security boundaries are in WEB-SETUP.md.
 4. Configure the feature clients to authenticate against this test issuer using a separate test permission session. Production sessions cannot be reused because the test signing secret is independent. Client test-environment targeting is still pending; simply changing the token URL is not sufficient.
 5. Perform actual Torn/extension/PDA, hibernation, restart, access, linked-node and usage acceptance. Do not claim production readiness from local fixtures.
 
-The customer node has NOT been connected to GitHub yet; its secrets/configuration are produced by the existing installer rather than committed. No live deployment or main promotion is authorized by this test checklist.
+Actual deployment/setup of the new hosted node code remains owner-performed through Cloudflare. Private node keys are generated in Durable Object storage, never committed. No live deployment or main promotion is authorized by this test checklist.
