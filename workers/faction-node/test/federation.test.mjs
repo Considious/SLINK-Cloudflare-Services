@@ -27,6 +27,7 @@ test('two real Workers mutually link rooms, deliver once and revoke independentl
   async function api(node,path,payload){const response=await node.mf.dispatchFetch(node.endpoint+path,{method:payload?'POST':'GET',headers:{Authorization:'Bearer '+node.auth,'Content-Type':'application/json'},...(payload?{body:JSON.stringify(payload)}:{})});return {status:response.status,data:await response.json()};}
   async function waitFor(predicate){const start=Date.now();while(Date.now()-start<5000){const result=await predicate();if(result)return result;await new Promise(resolve=>setTimeout(resolve,20));}assert.fail('Expected linked-room result was not received.');}
   const invite=await api(a,'/api/links/invite',{room_id:'general',target_faction:20});assert.equal(invite.status,200,JSON.stringify(invite.data));
+  const reviewed=await api(b,'/api/links/review',invite.data);assert.equal(reviewed.status,200);assert.equal(reviewed.data.faction_id,10);assert.equal((await api(b,'/api/admin')).data.rooms.find(room=>room.room_id==='general').links.length,0);
   const approve=await api(b,'/api/links/approve',{room_id:'general',...invite.data});assert.equal(approve.status,200,JSON.stringify(approve.data));
   assert.equal((await api(b,'/api/links/approve',{room_id:'general',...invite.data})).status,200);
   const connection=await a.mf.dispatchFetch(a.endpoint+'/api/rooms/general/socket',{headers:{Upgrade:'websocket','Sec-WebSocket-Protocol':'slink.chat.v1, slink.token.'+a.auth}});assert.equal(connection.status,101);

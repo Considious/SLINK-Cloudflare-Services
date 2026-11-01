@@ -54,9 +54,21 @@ Every server event has `protocol:1`. Client commands:
 
 Events include `welcome` (recent history, access and presence), `message`, `ack`, `message_update`, `action_ack`, `presence`, `typing`, `read_ack`, `auth_ack`, `access`, `access_revoked`, `delivery_pending`, `delivery_confirmed`, `delivery_failed`, and `error`. A local `ack` means persisted locally, not that every linked node has received it. Clients must reconcile messages by `message_id` and revision; sender broadcast plus ack is not two messages.
 
-## Client integration still to implement
+## Shared client integration
 
-Reuse the existing permission-session service, existing theme tokens and media picker/renderer. Add a separate shared Faction Node client rather than overloading the existing Torn faction-message composer helper. Discover the endpoint; never hardcode faction node addresses. Keep access tokens in memory, refresh the verified identity before expiry, and renew sockets rather than rebuilding UI.
+Canonical client/state, shadow-DOM room UI and setting editor live in the extension's `src/core/faction-node-*.js`. PDA has identical generated mirrors under `src/addons`; `tools/sync-faction-node.mjs --pda-root <folder>` checks parity and `--write` updates them. The extension's background service handles Central authentication through the existing permission service, while its active isolated content script owns room sockets and CORS-enabled node requests. PDA reuses its native JSON transport and existing permission session through a narrowly scoped plugin API adapter.
+
+No service-worker network keepalive loop was added. The [Chrome lifecycle documentation](https://developer.chrome.com/docs/extensions/how-to/web-platform/websockets) explains why an otherwise idle background socket can stop without regular activity; page-owned sockets avoid creating that background ping requirement. Actual Torn CSP and PDA WebSocket behavior still require deployed/device acceptance tests.
+
+State is separate from UI: message IDs/revisions reconcile broadcasts and acknowledgements; pending sends keep stable retry IDs; edits/deletes await confirmation. Renewal uses the existing socket. Activity loss closes connections/observers but retains displayed content and in-page drafts. Reconnection is bounded and provides a manual retry. A small account/faction-bound preference restores the open/minimized state and last room/management view across navigation, only after current identity/room access is checked. It does not store conversation contents, draft text or credentials. PDA saves this through the existing small UI-state record, not the large data/cache snapshot.
+
+Leader management uses roster names, independent read/send/moderator controls, duration selectors, early unmute/unblock, room creation/archive and Leader assignment. Link invitations require server-side signature review before the approval control is enabled. Fresh identity is required for Central roster/discovery/admin calls, not only token issuance.
+
+### Deferred Discord bridge
+
+The owner has requested optional Discord-channel linking after the chat core. Do not build a bot or connect Discord yet. A later bridge should be explicitly enabled by the node's Chat Leader and an authorized Discord channel administrator, carry source/channel/message identity for deduplication and loop prevention, honor room read/speak restrictions and moderation, and display clearly when a room shares messages outside Torn. Bot credentials belong in private customer-side secrets, never client code or chat messages. A Discord connection must not masquerade as a Torn user or inherit unrestricted faction access. Protocol/schema changes and Discord API requirements must be reviewed when this phase begins; the current numeric Torn-user message schema is not claimed to support Discord identities already.
+
+The implementation reuses the existing permission-session service, theme tokens/background assets and media picker/URL resolver. It does not overload the existing Torn faction-message composer helper. Endpoints are discovered from Central and access tokens remain in memory. The UI uses text nodes for message/name content, and media previews require a click.
 
 Extension sockets/transport must respect active-tab ownership and Torn CSP through its existing background architecture. PDA must respect active app/page lifecycle. Stop scraping hidden/inactive pages; do not remove already-rendered chat content on blur. Use a narrowly scoped observer only to attach owned controls when Torn mounts/replaces its chat row. No full-document scan timer.
 

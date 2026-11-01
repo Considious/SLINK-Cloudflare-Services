@@ -1,6 +1,6 @@
 # Faction Node checkpoint
 
-Updated 2026-10-31. Unreleased feature: do not merge/deploy main. Branch `feature/faction-node-v1` exists in Cloudflare Services, Browser Extension and Torn-Scripts. Client branches still have no feature edits.
+Updated 2026-10-31. Unreleased feature: do not merge/deploy main. Work is published on `feature/faction-node-v1` in Cloudflare Services, Browser Extension and Torn-Scripts. No live service deployment has been performed.
 
 ## Fixed agreement
 
@@ -21,16 +21,27 @@ Customer-owned Worker and SQLite Durable Objects, one room/object, hibernating W
 
 28 feature tests pass, including real local Worker/SQLite/WebSocket flows and two linked nodes. All 18 existing contribution tests pass. Wrangler package-only dry run succeeded; no deployment. Its outside-workspace log write was denied, not bundling. Deployment/physical-device/load checks remain explicit gates in TESTING.md and SECURITY.md.
 
-## Next task — do not repeat completed work
+## Client/UI completed locally
 
-Build shared client, Torn chat-bar windows and explicit Leader interface, then integrate extension/PDA.
+- Shared state/client, Torn chat-row launcher/window and Leader interface are implemented. Extension and PDA have separate platform adapters; their client/UI/settings code mirrors match through the explicit sync utility.
+- Optional QOL Faction Rooms toggle starts off, saves independently, and exists in the extension dashboard too. Existing settings are not reset. API/session integration reuses the established permission service/native PDA JSON transport.
+- State reconciliation, acknowledgement-aware edits/deletes, retry-safe pending messages, bounded reconnect, socket renewal, active-page gating, retained focused draft and account-change clearing have local coverage.
+- Last room/management view and open/minimized state persist as small identity-bound UI preferences, not a large cache save. Actual conversation contents, unsent text and credentials are not persisted there. Draft text remains within the current page.
+- Leader controls include named-member selection, independent read/send/moderator settings, timed grants/mutes/blocks, Leader assignment, room creation/archive, verified invitation review/approval, unlink and diagnostics.
+- Themes reuse tokens/background assets. GIF/sticker selection reuses the existing picker and media URL resolver. Minimize/focus return resumes the picker instead of leaving it suspended.
+- Dedicated PDA `SLINK_PDA_Faction_Node_Test.user.js` follows the feature branch with a separate runtime cache. The normal launcher remains on main; do not run both simultaneously.
+- Local tests: 11 extension client/service cases, 4 PDA adapter/installer cases, real client/server SQLite/WebSocket integration, headless Chrome UI checks, existing extension manifest/background/dashboard-host checks, and PDA storage/lifecycle checks. Backend remains 28 passing tests.
 
-1. Reuse verified permission sessions, existing theme tokens and media picker/renderer. Discover endpoints, keep access tokens in memory, share renewal across rooms.
-2. Extension transport must respect Torn CSP via its background architecture and active-tab ownership. PDA follows its active-page lifecycle. No hidden-page scraping, full-document scan timer or native-chat transport interception.
-3. User-supplied stable anchors: `#chatRoot`, `people_panel_button`, `slink_extension_chat_button`, `notes_settings_button`, `chat_panel_button:faction`. Current bottom row/window-container classes are `root___Ef1Ql`/`root___PF7AM`. Synthetic fixtures only; do not retain private messages from supplied HTML.
-4. Administration needs a roster-name picker, clear room access modes, duration choices, early unmute/unblock, moderators/Leaders, invitation review/approval and diagnostics. Backend is authoritative.
-5. Patch messages by ID/revision; preserve drafts, focus and scroll across auth refresh. Do not overwrite `src/core/faction-chat.js`, which is an unrelated Torn-message composer helper.
-6. Complete deployment, security/load, expanded failure recovery and physical-device gates before general release.
+## Next task — deployment and acceptance, not rebuilding the same client
+
+1. Provision/authorize a separate Central test deployment/database/key and a customer test node. The new `/api/chat/*` routes are NOT live. Existing client constants currently target the established Central origin; test-environment targeting/auth must be configured coherently before online testing. Do not simply push this into main to make the routes appear.
+2. Validate actual isolated extension WebSocket origin/CSP and physical PDA native requests/WebSockets. The ordinary Chrome UI test passed; the additional isolated-extension probe could not start Edge under the local environment (crash-handler/browser launch failure), so that policy result is unverified. No bypass or periodic network keepalive was added.
+3. Exercise deployed hibernation, clean-account installer/upgrade, interrupted saves, retention, load/abuse/billing, full Torn navigation and real provider media responses. Review terms/privacy for the new faction-owned chat before production.
+4. Follow TESTING.md/SECURITY.md gates. The UI fixture uses the supplied Torn anchor structure but does not prove actual Torn layout. No additional DOM elements are currently needed unless deployed/device behavior differs.
+
+## Deferred request
+
+Optional Discord-channel bridging is requested for later. The bot is NOT implemented now. Require explicit room/channel approval, private customer-side credentials, clear external-sharing disclosure, independent identities, deduplication/loop prevention and moderation/access enforcement. See ARCHITECTURE.md; the current protocol is not falsely presented as already supporting Discord users.
 
 Use internal GitHub tools, never shell Git/gh. Node/npm/local tests are allowed. Node 22.13+, lockfile-pinned tools. Never commit private config, node_modules or generated bundles.
 

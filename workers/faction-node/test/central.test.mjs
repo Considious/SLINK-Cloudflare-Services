@@ -54,6 +54,8 @@ test('membership freshness bounds token expiry and old sessions require refresh'
   const claims=await verify(result.data.token,f.central.public,{aud:'node-test',issuer:f.issuer,kind:'chat_access'});
   assert.equal(claims.exp,now+50);
   f.setSession({iat:now-301});assert.equal((await f.call('token',{})).status,428);
+  assert.equal((await f.call('members')).status,428);
+  assert.equal((await f.call('discover')).status,428);
 });
 test('revocation and expired faction license stop token issue and renewal',async t=>{
   const f=await fixture(t);await f.call('register',await f.registration(await f.setup()));

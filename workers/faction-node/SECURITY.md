@@ -40,5 +40,5 @@ The new routes are isolated under `/api/chat/`. Existing permission/session requ
 - Real deployed hibernation/resume and billing measurements (local workerd is not proof of eviction).
 - Load tests of reconnect-resistant abuse limits and Central endpoint abuse protection.
 - Deployed inactive-room retention/deletion verification.
-- Complete Torn client/UI integration, safe rendering, background/visibility rules, CSP and physical PDA checks.
+- Validate the implemented client/UI on actual Torn pages, including background/visibility rules, CSP and physical PDA devices; local synthetic-browser tests are not proof of those environments.
 - Independent security review before describing this as production-ready.

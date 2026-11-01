@@ -1,6 +1,6 @@
 # Faction chat — what to test
 
-Not ready for general testing yet: the chat-window controls are still being connected. Use this checklist once a test installation is available.
+Preview build: the faction chat service must be configured before online testing. The new service routes are not deployed live yet.
 
 ## What is being added
 
@@ -12,7 +12,7 @@ Not ready for general testing yet: the chat-window controls are still being conn
 
 ## Please try these
 
-- Refresh and change Torn pages. Check messages, drafts and your scroll position.
+- Minimize/reopen and switch away/back. The current room and unsent draft should remain on that page. Change Torn pages: the last room and open/minimized state should return after access is checked. Unsent text drafts are page-local; saved messages should load from the node.
 - Try entering a room you were not assigned to; it should stay inaccessible.
 - Have a Leader mute you while the room is open. Reading should work, sending should stop immediately, and the chosen expiry should restore it.
 - Remove access while someone is connected. Reopening or changing devices must not bypass the restriction.

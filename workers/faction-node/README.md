@@ -2,7 +2,7 @@
 
 Faction-owned chat for SLINK. Your faction runs a small service in **its own Cloudflare account**, where its rooms, messages and settings are stored. SLINK Central verifies users and supplies the address of your faction's service; Central does not store the conversations.
 
-**Development build — not ready for general installation.** The backend and setup wizard are implemented and tested locally. The Torn chat-bar interface, Leader controls, extension/PDA integration and customer deployment acceptance tests are still being built. No existing SLINK installation is changed by downloading this package.
+**Development build — not ready for general installation.** Backend, setup wizard, Torn chat-bar interface, Leader controls and extension/PDA adapters are implemented on the feature branch and have local test coverage. Real Cloudflare deployment, Torn-page/CSP and physical PDA acceptance checks remain. These clients need the new Central routes, which have NOT been deployed to the live service. Downloading this package does not update the existing live SLINK services.
 
 ## What you need
 
@@ -42,6 +42,10 @@ Keep your private configuration files, replace the package source with the appro
 Do not deploy the unconfigured example `wrangler.jsonc` over your actual node. Setup uses your generated `wrangler.local.json` instead. Do not rename the Worker or its Durable Object classes as an update shortcut: that can create a different data namespace.
 
 ## Rooms and moderation
+
+In the feature build, enable **Quality of Life → Faction Rooms → Show faction rooms in Torn chat**. This option starts off. A **Rooms** button appears beside Torn's chat controls; open it to choose a room. Explicit Leaders have a **Manage** button for room/member/link controls. The extension dashboard has the same enable/disable option. Existing API keys, chat customization preferences and unrelated settings are not reset.
+
+Minimizing/reopening, temporary inactivity and socket renewal retain the current window/draft in that page. The open/minimized state and last room/management view are saved separately and restored after verifying the current identity on a new page. Saved history comes from the node. Unsent text drafts remain page-local: they are not uploaded or promised to survive a full page reload. Real Torn-page navigation still needs acceptance testing.
 
 - **Entire faction:** current authenticated faction members can read and speak by default.
 - **Selected members:** only assigned members and explicit Chat Leaders can enter. This supports officers-only and team rooms without making everyone an administrator.
