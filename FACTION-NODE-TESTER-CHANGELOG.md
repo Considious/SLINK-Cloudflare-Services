@@ -1,6 +1,6 @@
 # Faction chat — what to test
 
-Preview build: the faction chat service must be configured before online testing. The new service routes are not deployed live yet.
+Preview build for test faction 46978. The test chat backend is registered; use the feature-branch clients, not the normal release.
 
 ## What is being added
 
@@ -11,8 +11,12 @@ Preview build: the faction chat service must be configured before online testing
 - Media messages using SLINK's existing GIF/sticker tools.
 - Safer room-save retries, lighter typing updates and limits on repeated reconnect attempts during connection trouble.
 - Cloudflare-hosted test setup: private node keys stay in Cloudflare, with no local launcher or secret copying.
+- Faction Rooms now signs in to the test chat service separately, without changing your normal SLINK login or alert settings.
 
 ## Please try these
+
+- Enable Faction Rooms under Quality of Life, then open Rooms in Torn's chat row. Your saved Torn key and existing terms acceptance should work without another key field or clearing settings.
+- Confirm the assigned Chat Leader can manage rooms. A different faction member should be able to enter General but must not get management controls just because they have SLINK admin permissions.
 
 - Minimize/reopen and switch away/back. The current room and unsent draft should remain on that page. Change Torn pages: the last room and open/minimized state should return after access is checked. Unsent text drafts are page-local; saved messages should load from the node.
 - Try entering a room you were not assigned to; it should stay inaccessible.

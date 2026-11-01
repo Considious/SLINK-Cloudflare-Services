@@ -1,6 +1,6 @@
 # Faction Node checkpoint
 
-Updated 2026-10-31. Unreleased feature: do not merge/deploy main. Work is published on `feature/faction-node-v1` in Cloudflare Services, Browser Extension and Torn-Scripts. No live service deployment has been performed.
+Updated 2026-10-31. Unreleased feature: do not merge/deploy main. Work is published on `feature/faction-node-v1` in Cloudflare Services, Browser Extension and Torn-Scripts. Production services are unchanged. The owner deployed the isolated test Workers through Cloudflare; the approved public setup handshake has now succeeded.
 
 ## Fixed agreement
 
@@ -34,6 +34,12 @@ Customer-owned Worker and SQLite Durable Objects, one room/object, hibernating W
 - Hardening complete locally: room creation receipts prevent duplicates after a lost save acknowledgement; typing is coalesced with no database writes; concurrent delivery tasks share an attempt; reconnect limits survive brief connection flaps, rate limits impose a cooldown, and manual reconnect cancels the old scheduled retry. Shared PDA sources and its feature installer were rebuilt. No unrelated modules, main branches or live deployments changed.
 
 ## Next task — deployment and acceptance, not rebuilding the same client
+
+Current progress: the public `/api/setup/complete` retry returned HTTP 200, ok=true, node slink-node-46978-hosted-test, faction 46978 and explicit Leader 3853023. This confirms the hosted test backend registered successfully after the routing fix. No Cloudflare account/browser access was used by the agent.
+
+Test clients are now wired to the separate test issuer. One shared `createTestAccess` helper is used by extension and PDA, with in-memory sessions bounded by Central's five-minute identity freshness, exact terms/hash checks, saved-key-change checks and one bounded 401/428 refresh. It never overwrites production Access sessions or permission snapshots. Keys go only to test Central auth, never the customer node. The module setting starts off and discloses test sign-in. Settings UI visibility no longer incorrectly depends on a production slink.chat/admin grant; the test backend remains the authority. The extension has explicit test-host permissions/capability; the PDA test installer alone gets the extra @connect metadata. PDA initialization lazily creates the helper after add-ons load. Test Central accepts syntactically valid extension origins on authenticated routes without wildcard CORS or relaxing token checks; arbitrary HTTPS origins remain rejected. That wrapper update requires the connected test Central build to deploy.
+
+Verified for this client phase: 17 extension client/service tests, 5 PDA adapter/installer tests, PDA storage/activity/write-isolation regressions, extension manifest/background/dashboard-parity checks and the headless Chrome UI check. The added settings-change regression ensures unrelated War/Access settings do not close/rebuild the chat window; a real saved-key change clears the old account's view. Shared client/settings mirrors match. Physical extension/PDA installation, actual Torn CSP/WebSockets and second-member access tests are still required; do not describe them as passed. No main branches or production sessions were changed.
 
 Latest setup report: INVALID_JSON from the hosted completion page. Public GET checks confirmed both Workers serve the new code, Central configured=true and node setup_required. Found missing global_fetch_strictly_public in BOTH test configurations and legacy Central alias; corrected it per Cloudflare's Worker-to-Worker fetch documentation. Exact edge response from inside the deployed Worker was not captured, so 1042 remains the supported diagnosis, not a directly observed error code. Added service-response diagnostics and regressions for 1042/HTML/empty responses without leaking response bodies. The full suite is 53 passing tests; hosted runtime integration covers the injected edge error followed by successful setup. The owner must let both test builds deploy this update, then retry the existing setup page. No setting reentry, storage clearing or credential changes are required.
 

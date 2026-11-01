@@ -22,6 +22,8 @@ test('test wrapper blocks unrelated APIs and wrong deployment targets without ex
  assert.equal((await worker.fetch(new Request('https://other.example.test/'),env)).status,503);
  const health=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/health'),env)).json();assert.equal(health.configured,false);assert.equal(health.test_only,true);
  const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);
+ const origin='chrome-extension://'+'a'.repeat(32),protectedRequest=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:origin}}),{...env,PERMISSIONS_DB:{}});assert.equal(protectedRequest.status,401);assert.equal(protectedRequest.headers.get('Access-Control-Allow-Origin'),origin);
+ const foreign=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:'https://untrusted.example'}}),{...env,PERMISSIONS_DB:{}});assert.equal(foreign.status,403);
 });
 test('test deployment has only its new D1 database and no production buckets, schedules or secrets',async()=>{
  const config=JSON.parse(await readFile(new URL('../test-central/wrangler.jsonc',import.meta.url),'utf8'));

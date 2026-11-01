@@ -14,6 +14,10 @@ export default {
   // Setup tokens are provisioned separately by the database owner for this test.
   // No admin.* grant is added merely to bootstrap the initial Chat Leader.
   if(!auth&&!chat||['/api/chat/setup-token','/api/chat/revoke'].includes(url.pathname))return Response.json({ok:false,error:'This route is not exposed by the isolated chat test service.'},{status:404});
-  return contribution.fetch(request,env,ctx);
+  // Unpacked extension IDs vary by installation. Echo only a syntactically valid
+  // extension origin on this test service; every protected route still verifies its token.
+  const origin=request.headers.get('Origin'),extensionOrigin=/^chrome-extension:\/\/[a-p]{32}$/.test(origin||'');
+  const scoped=extensionOrigin?{...env,CHAT_ALLOWED_ORIGINS:(env.CHAT_ALLOWED_ORIGINS||'https://www.torn.com')+','+origin}:env;
+  return contribution.fetch(request,scoped,ctx);
  }
 };
