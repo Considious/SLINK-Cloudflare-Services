@@ -1,5 +1,6 @@
 import {body,ensure,verify,hash,hmac,json,errorResponse} from './protocol.js';
 import {handleFactionNode} from './central.js';
+import {setupResponse} from './setup-response.js';
 const CENTRAL='https://slink-chat-central-test.richard-johnson554.workers.dev',NODE='https://slink-faction-node-46978-test.richard-johnson554.workers.dev';
 // Owner preapproval is deliberately fixed to ONE test endpoint/faction/Leader.
 // This is NOT a general public customer installer or an admin wildcard bypass.
@@ -14,7 +15,7 @@ export async function bootstrapApprovedTestNode(request,env,send=fetch){try{
  ensure(gate.meta?.changes===1,'SETUP_BUSY','Wait ten seconds before retrying setup.',429);
  const token=await hmac(await hash(env.API_KEY_ENCRYPTION_KEY),'approved-test-node-46978:'+Math.floor(now/300000)),digest=await hash(token),nonce=await hash(crypto.randomUUID());
  const challenge=await send(NODE+'/api/setup/identity-proof',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({token_hash:digest,nonce})});
- ensure(challenge.ok,'NODE_SETUP_UNAVAILABLE','The test node code/bindings are not deployed yet.',502);const identity=await body(challenge,8192);
+ const identity=await setupResponse(challenge,'Test node ownership proof',8192);ensure(challenge.ok,'NODE_SETUP_UNAVAILABLE','Test node ownership proof returned HTTP '+challenge.status+'. '+String(identity.error||'The node code/bindings are not ready.').slice(0,180),502);
  const proof=await verify(identity.proof,identity.public_key,{issuer:identity.node_id,aud:'slink-node-registration',kind:'node_registration',maxTtl:120});
  ensure(proof.nonce===nonce&&proof.token_hash===digest&&proof.endpoint===NODE&&proof.faction_id===46978,'NODE_SETUP_MISMATCH','The node did not prove ownership of the approved test endpoint.',403);
  const existing=await db.prepare('SELECT * FROM faction_chat_nodes WHERE faction_id=46978').first();

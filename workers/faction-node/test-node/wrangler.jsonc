@@ -2,6 +2,7 @@
  "name":"slink-faction-node-46978-test",
  "main":"../hosted-test-worker.js",
  "compatibility_date":"2026-08-06",
+ "compatibility_flags":["global_fetch_strictly_public"],
  "workers_dev":true,
  "keep_vars":true,
  "durable_objects":{"bindings":[{"name":"IDENTITY","class_name":"HostedTestIdentity"},{"name":"DIRECTORY","class_name":"FactionDirectory"},{"name":"ROOMS","class_name":"ChatRoom"}]},

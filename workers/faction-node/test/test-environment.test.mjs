@@ -33,4 +33,5 @@ test('old Central configuration remains compatible and both web build roots use 
  const canonical=JSON.parse(await readFile(new URL('../test-central/wrangler.jsonc',import.meta.url),'utf8')),legacy=JSON.parse(await readFile(new URL('../wrangler.central-test.jsonc',import.meta.url),'utf8'));assert.deepEqual({...legacy,main:canonical.main},canonical);
  for(const folder of ['test-central','test-node'])for(const file of ['package.json','package-lock.json'])assert.equal(await readFile(new URL('../'+folder+'/'+file,import.meta.url),'utf8'),await readFile(new URL('../'+file,import.meta.url),'utf8'));
  const node=JSON.parse(await readFile(new URL('../test-node/wrangler.jsonc',import.meta.url),'utf8'));assert.equal(node.name,'slink-faction-node-46978-test');assert.deepEqual(node.migrations[0].new_sqlite_classes,['HostedTestIdentity','FactionDirectory','ChatRoom']);assert.equal(node.d1_databases,undefined);assert.equal('NODE_PRIVATE_KEY' in node.vars,false);
+ assert.ok(canonical.compatibility_flags.includes('global_fetch_strictly_public'));assert.ok(node.compatibility_flags.includes('global_fetch_strictly_public'));
 });

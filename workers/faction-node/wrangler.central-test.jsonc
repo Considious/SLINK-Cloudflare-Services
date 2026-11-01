@@ -2,7 +2,7 @@
  "name":"slink-chat-central-test",
  "main":"central-test-worker.js",
  "compatibility_date":"2026-08-23",
- "compatibility_flags":["nodejs_compat"],
+ "compatibility_flags":["nodejs_compat","global_fetch_strictly_public"],
  "workers_dev":true,
  "keep_vars":true,
  "vars":{"CHAT_TEST_FACTION_ID":"46978","CHAT_CENTRAL_ISSUER":"https://slink-chat-central-test.richard-johnson554.workers.dev","CHAT_ALLOWED_ORIGINS":"https://www.torn.com"},

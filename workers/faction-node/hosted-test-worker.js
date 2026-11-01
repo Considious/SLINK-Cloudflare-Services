@@ -1,6 +1,7 @@
 import node from './worker.js';
 import {HostedTestIdentity,TEST_NODE,TEST_CENTRAL,TEST_NODE_ID} from './hosted-test-identity.js';
 import {body,json,ensure,errorResponse} from './protocol.js';
+import {setupResponse} from './setup-response.js';
 export {HostedTestIdentity};
 export {FactionDirectory,ChatRoom} from './worker.js';
 export default {async fetch(request,env){try{
@@ -10,7 +11,7 @@ export default {async fetch(request,env){try{
  if(url.pathname==='/api/setup/identity-proof'&&request.method==='POST')return json(await identity.registrationProof(await body(request,2048)));
  if(url.pathname==='/api/setup/complete'&&request.method==='POST'){
   ensure(request.headers.get('Origin')===TEST_NODE,'ORIGIN_DENIED','Open the setup page on this node to finish installation.',403);
-  const response=await fetch(TEST_CENTRAL+'/api/chat/test-node/bootstrap',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'Content-Type':'application/json'},body:'{}'}),result=await body(response,16384);
+  const response=await fetch(TEST_CENTRAL+'/api/chat/test-node/bootstrap',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'Content-Type':'application/json'},body:'{}'}),result=await setupResponse(response,'Test Central registration',16384);
   ensure(response.ok,'SETUP_FAILED',String(result.error||'Test Central could not complete setup.').slice(0,250),response.status);
   return json({...await identity.accept(result.certificate,result.public_key),message:'Backend setup complete. Private identity is stored in Cloudflare. SLINK test-client integration remains separate.'});
  }
