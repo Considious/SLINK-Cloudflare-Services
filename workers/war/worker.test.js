@@ -25,7 +25,7 @@ test('publishes the exact current shared terms fingerprint', () => {
   ).replace(/\r\n?/g, '\n');
   const fingerprint = crypto.createHash('sha256').update(terms, 'utf8').digest('hex');
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
-  assert.match(worker, /const TERMS_VERSION = '2026-10-20'/);
+  assert.match(worker, /const TERMS_VERSION = '2026-11-01'/);
   assert.match(worker, new RegExp(fingerprint));
 });
 
@@ -186,5 +186,3 @@ test('leaves generic permission sessions and grants outside the War Worker', () 
   }
   assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);
 });
-
-

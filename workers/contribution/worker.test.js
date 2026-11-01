@@ -10,9 +10,9 @@ const originalFetch = globalThis.fetch;
 const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64url');
 const SERVICE_TOKEN = 'test-contribution-service-token';
 const TERMS_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
 const DISCLOSURE_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
 
 afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -25,7 +25,7 @@ describe('SLINK Contribution Service', () => {
         const authBody = {
             api_key:'member-public-test-key',
             terms_accepted:true,
-            terms_version:'2026-10-20',
+            terms_version:'2026-11-01',
             terms_sha256:TERMS_SHA256
         };
         globalThis.fetch = tornFetch({
@@ -167,8 +167,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key:'rate-limited-key',
                 terms_accepted:true,
-                terms_version:'2026-10-20',
-                terms_sha256:'4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version:'2026-11-01',
+                terms_sha256:'78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -185,8 +185,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key: 'ordinary-local-key',
                 terms_accepted: true,
-                terms_version: '2026-10-20',
-                terms_sha256: '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version: '2026-11-01',
+                terms_sha256: '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -337,8 +337,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key: 'owner-permission-key',
                 terms_accepted: true,
-                terms_version: '2026-10-20',
-                terms_sha256: '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version: '2026-11-01',
+                terms_sha256: '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -455,8 +455,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key:'owner-role-key',
                 terms_accepted:true,
-                terms_version:'2026-10-20',
-                terms_sha256:'4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version:'2026-11-01',
+                terms_sha256:'78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -515,8 +515,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key:'officer-role-key',
                 terms_accepted:true,
-                terms_version:'2026-10-20',
-                terms_sha256:'4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version:'2026-11-01',
+                terms_sha256:'78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -741,8 +741,8 @@ describe('SLINK Contribution Service', () => {
             {
                 api_key:'permission-test-key',
                 terms_accepted:true,
-                terms_version:'2026-10-20',
-                terms_sha256:'4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0',
+                terms_version:'2026-11-01',
+                terms_sha256:'78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797',
                 client_name:'Test',
                 client_version:'1'
             }
@@ -847,8 +847,8 @@ describe('SLINK Contribution Service', () => {
             jsonRequest('https://contribution.example/api/permissions/auth', {
                 api_key:'temporary-auth-only-key',
                 terms_accepted:true,
-                terms_version:'2026-10-20',
-                terms_sha256:'4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0'
+                terms_version:'2026-11-01',
+                terms_sha256:'78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797'
             }),
             env
         );
@@ -945,9 +945,9 @@ function donationRequest(apiKey) {
     return jsonRequest('https://contribution.example/api/donations', {
         api_key: apiKey,
         terms_accepted: true,
-        terms_version: '2026-10-20',
+        terms_version: '2026-11-01',
         terms_sha256: TERMS_SHA256,
-        disclosure_version: '2026-10-20',
+        disclosure_version: '2026-11-01',
         disclosure_sha256: DISCLOSURE_SHA256
     });
 }

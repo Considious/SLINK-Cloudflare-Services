@@ -5,9 +5,9 @@ Browser Extension · PDA Userscript · Shared Services · Data Infrastructure
 
 **Operator:** Considious [3853023]  
 **Faction:** [())))))] ("Slinky's") [46978]  
-**Policy version:** 2026-10-20  
-**Effective date:** October 20, 2026  
-**Last updated:** October 20, 2026
+**Policy version:** 2026-11-01  
+**Effective date:** November 1, 2026  
+**Last updated:** November 1, 2026
 
 ## Plain-language summary
 
@@ -177,6 +177,92 @@ subject to the provider's terms.
 
 Market alerts and recommendations are informational. SLINK does not guarantee
 profit, item availability, or that a listing remains available when opened.
+
+## 10A. Chat, media, and faction-hosted Rooms
+
+Torn chat enhancements may read visible message links, sender identifiers, and
+the current composer to display media, Fair Fight estimates, highlighting,
+emoji shortcuts, and custom buttons. Torn message text is processed locally;
+SLINK does not upload Torn conversations to a faction node. Sending a Torn
+message remains a deliberate user action through Torn's own controls.
+
+GIF searches and previews contact GIPHY; sticker searches can also contact
+ChatSticker and the selected media host. These providers receive search text,
+requested media URLs, and ordinary connection information such as IP address.
+GIPHY requests use SLINK's shared application key or a key supplied by the user.
+Personal provider keys stay on the device and are not included in settings
+backups. Embedding an external image contacts its host. Do not put secrets in
+searches or media links. Optional Fair Fight chat estimates send relevant player
+IDs to FFScouter, with shared SLINK player intelligence used as a fallback.
+
+SLINK Rooms are separate third-party chat services, not Torn chat and not
+operated, endorsed, monitored, or supported by Torn. Rooms are offered by
+default unless the user previously disabled them; a first-use notice must be
+acknowledged before connecting. Users can turn Rooms off or mute individual
+rooms. Use at your own risk and do not post API keys or sensitive information.
+
+The Central service temporarily uses the saved Torn key for identity and
+faction/membership verification and checks the separate faction Chat license.
+It issues short-lived signed chat tickets. The faction node receives a ticket,
+verified user ID, player name, and faction identity, **not the Torn API key**.
+Room messages themselves are SLINK data, not data fetched from Torn's API.
+
+Faction nodes store room definitions, user IDs/names, member permissions,
+message text and media links, replies, edits/deletions, read positions,
+moderation records, and linked-faction delivery records as needed to operate
+chat. Presence and typing information are shared with authorized participants.
+Cloudflare hosts the service and processes normal connection metadata. Messages
+are protected in transit but **not end-to-end encrypted**: authorized room
+participants, administrators, and the node's infrastructure operator can access
+them. Explicit Chat Leaders administer rooms; a generic SLINK administrator
+grant alone does not make someone a Chat Leader.
+
+Leaders can restrict room membership, allow read-only access, appoint
+moderators, and impose temporary or indefinite mutes or access restrictions.
+Linking a room to another faction shares its future messages with the linked
+room's authorized participants and infrastructure operators. The Leader reviews
+the invitation before approval; linked participants may retain copies of content
+already delivered even after a link, permission, or message is removed.
+
+The supplied node configuration retains messages for up to 30 days and up to
+10,000 messages per room, with older messages pruned; node operators can change
+these limits. A self-hosted faction node is controlled by its operator, who is
+responsible for its configuration, local rules, access, and handling deletion
+requests. Contact that operator or your Chat Leader about a specific room;
+contact Considious about Central identity/license data. Removing a local script
+or settings backup does not delete server-side chat history or recipients'
+copies. Chat transcripts are not ordinary settings-backup contents.
+
+An existing Rooms connection may continue receiving **third-party SLINK room**
+messages when Torn loses focus. That does not permit reading Torn messages,
+collecting Torn page data, or monitoring Torn's sockets in the background.
+Torn DOM inspection and layout discovery remain subject to Section 2.
+
+## 10B. API feature inventory and provider coverage
+
+The same policy covers all API-backed SLINK features; a module name change does
+not create a separate policy or authorize a new undisclosed use.
+
+| Feature category | Authorized data and purpose | Sharing/storage |
+| --- | --- | --- |
+| Access, permissions, themes, and chat login | Key capabilities, verified identity, faction membership and grants; eligibility and service security | Local sessions/settings and Central grant/acceptance records; ordinary keys not retained remotely |
+| Combat, War, Leveling, Mugging, Bounties, Targets, stakeouts, and Fair Fight | Own authorized battle stats; public/authorized target stats or estimates, status, attacks, chain/retaliation and faction coordination | Private self stats cached locally; disclosed target observations/estimates and coordination records can synchronize with shared intelligence and authorized faction tools |
+| Alerts, merits, company/officer tools and organized crimes | Bars, cooldowns, missions, refills, purchases, crime progress, company/faction/member details, equipment and supplies | Local personal reminders; authorized officer and coordination records may be shared as described in Sections 7–9 |
+| Markets, bazaars, travel and Abroad Stocks | Item catalogues, valuations, stock/prices, travel and provider observations | Local comparisons and shared public observations; providers include Weav3r, YATA, Prometheus, Torn Intel and optional DroqsDB |
+| Money, property, banking, stocks and museums | Authorized balances/property information, bank term rates, relevant merits/stock benefits, holdings and item/set values | Locally cached financial summaries and calculations; not a guarantee of profit or a public financial profile |
+| Racing, events and guides | API race/car/event schedules and relevant personal progress, where available | Local guides, recommendations and reminders; missing API information is not proof an event is unavailable |
+| Optional community contribution and backups | Budgeted client-side public-data checks and deduplicated observations; non-secret configuration recovery | Shared SLINK intelligence and optional authenticated backup storage; no ordinary user key transferred to another client |
+
+API-backed checks can be coordinated across modules so each module need not
+request the same data independently. FFScouter values are estimates, not an
+authoritative source for the user's own current battle stats. API providers,
+Cloudflare and GitHub may process their normal request/security metadata.
+Provider terms apply to the optional integration: [GIPHY](https://giphy.com/terms),
+[ChatSticker](https://chatsticker.com/), [FFScouter](https://ffscouter.com/),
+[Weav3r](https://weav3r.dev/), [YATA](https://yata.yt/),
+[Prometheus](https://prombot.co.uk/), [Torn Intel](https://torn-intel.com/), and
+[DroqsDB](https://droqsdb.com/). Consult the provider's current terms/privacy
+notice before enabling it. No statement here represents Torn staff approval.
 
 ## 11. Optional settings backup and recovery
 

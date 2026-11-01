@@ -12,9 +12,9 @@ import '../shared/errors.js';
 import {handleFairFightBackup} from './fair-fight-backup.js';
 import {handleFactionNode} from '../faction-node/central.js';
 const WORKER_VERSION = '0.4.11-readable-errors';
-const DATA_TERMS_VERSION = '2026-10-20';
+const DATA_TERMS_VERSION = '2026-11-01';
 const DATA_TERMS_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
 const DATA_TERMS_URL =
     'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
     'terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -33,7 +33,7 @@ const OFFICER_MANAGED_SCOPES = Object.freeze([
     'slink.officer.oc'
 ]);
 const TERMS_VERSION = DATA_TERMS_VERSION;
-const TERMS_EFFECTIVE_AT = '2026-10-20';
+const TERMS_EFFECTIVE_AT = '2026-11-01';
 const TERMS_URL = DATA_TERMS_URL;
 const TERMS_DOCUMENT_SHA256 =
     DATA_TERMS_SHA256;

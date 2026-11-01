@@ -8,12 +8,12 @@ import worker, { testing } from './worker.js';
 
 const originalFetch = globalThis.fetch;
 const WORKER_VERSION = '0.16.3-readable-errors';
-const TERMS_VERSION = '2026-10-20';
+const TERMS_VERSION = '2026-11-01';
 const TERMS_DOCUMENT_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
-const LEVELING_DISCLOSURE_VERSION = '2026-10-20';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
+const LEVELING_DISCLOSURE_VERSION = '2026-11-01';
 const LEVELING_DISCLOSURE_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
 const SESSION_SECRET = 'test-session-secret';
 const originalDateNow = Date.now;
 

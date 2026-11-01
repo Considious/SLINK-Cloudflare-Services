@@ -29,14 +29,14 @@ const MASTER_CSV_URL =
     'Slinkies-Leveling-Targets/Master-Leveling-Targets.csv';
 const FFSCOUTER_TARGETS_URL = 'https://ffscouter.com/api/v1/get-targets';
 
-const TERMS_VERSION = '2026-10-20';
-const TERMS_EFFECTIVE_AT = '2026-10-20';
+const TERMS_VERSION = '2026-11-01';
+const TERMS_EFFECTIVE_AT = '2026-11-01';
 const TERMS_URL =
     'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
     'terms/2026-08-23/' +
     'SLINK_API_Data_Terms_of_Service.md';
 const TERMS_DOCUMENT_SHA256 =
-    '4386e2c662f273d7e89fbe803cc4e7038496d5b3f8eeab95eb44da137746f3a0';
+    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
 const LEVELING_SERVICE_ID = 'slink-leveling-service';
 const CONTRIBUTION_LEVELING_SERVICE_ID = 'slink.level';
 const LEVELING_DISCLOSURE_VERSION = TERMS_VERSION;
