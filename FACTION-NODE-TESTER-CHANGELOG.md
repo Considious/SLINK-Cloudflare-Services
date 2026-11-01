@@ -9,6 +9,7 @@ Preview build: the faction chat service must be configured before online testing
 - Replies, history, unread counts and editing/deleting your own messages.
 - Leader/moderator controls and optional links with another consenting faction.
 - Media messages using SLINK's existing GIF/sticker tools.
+- Safer room-save retries, lighter typing updates and limits on repeated reconnect attempts during connection trouble.
 
 ## Please try these
 
@@ -20,6 +21,8 @@ Preview build: the faction chat service must be configured before online testing
 - Change one permission and confirm other permissions stay unchanged.
 - Reply, edit and delete your own messages. Changing another person's message without moderator permission should be refused.
 - Reconnect after sending. Saved messages should remain, without duplicates.
+- Interrupt a room save, then retry the same details. It should create only one room.
+- Try an unstable connection. Chat should stop repeatedly reconnecting and offer a manual retry without clearing the conversation. If updates are sent too rapidly, wait a minute before reconnecting.
 - Link two test factions. Both Leaders must approve; either can disconnect the link.
 - Take the other test node offline. Local chat should continue and remote delivery trouble should be clear.
 - Try themes, narrow screens, scrolling and normal Torn chat. Nothing should overlap controls or interrupt native conversations.

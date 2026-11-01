@@ -19,7 +19,7 @@ Customer-owned Worker and SQLite Durable Objects, one room/object, hibernating W
 
 ## Checks completed
 
-28 feature tests pass, including real local Worker/SQLite/WebSocket flows and two linked nodes. All 18 existing contribution tests pass. Wrangler package-only dry run succeeded; no deployment. Its outside-workspace log write was denied, not bundling. Deployment/physical-device/load checks remain explicit gates in TESTING.md and SECURITY.md.
+39 feature tests pass, including real local Worker/SQLite/WebSocket flows and two linked nodes. Eleven added fault/SQLite tests cover interrupted saves, retry-safe room creation, ephemeral typing/flood rejection, moderation/replies, serialized delivery, bounded retries, idle retention and duplicate remote events. All 18 existing contribution tests passed during backend integration. The earlier Wrangler package-only dry run succeeded; no deployment. Its outside-workspace log write was denied, not bundling. Deployment/physical-device/load checks remain explicit gates in TESTING.md and SECURITY.md.
 
 ## Client/UI completed locally
 
@@ -30,7 +30,8 @@ Customer-owned Worker and SQLite Durable Objects, one room/object, hibernating W
 - Leader controls include named-member selection, independent read/send/moderator settings, timed grants/mutes/blocks, Leader assignment, room creation/archive, verified invitation review/approval, unlink and diagnostics.
 - Themes reuse tokens/background assets. GIF/sticker selection reuses the existing picker and media URL resolver. Minimize/focus return resumes the picker instead of leaving it suspended.
 - Dedicated PDA `SLINK_PDA_Faction_Node_Test.user.js` follows the feature branch with a separate runtime cache. The normal launcher remains on main; do not run both simultaneously.
-- Local tests: 11 extension client/service cases, 4 PDA adapter/installer cases, real client/server SQLite/WebSocket integration, headless Chrome UI checks, existing extension manifest/background/dashboard-host checks, and PDA storage/lifecycle checks. Backend remains 28 passing tests.
+- Local tests: 13 extension client/service cases, 4 PDA adapter/installer cases, real client/server SQLite/WebSocket integration, headless Chrome UI checks (including retried room creation), and PDA storage/lifecycle/write-isolation checks. Earlier extension manifest/background/dashboard-host checks passed during integration. Backend is now 39 passing tests.
+- Hardening complete locally: room creation receipts prevent duplicates after a lost save acknowledgement; typing is coalesced with no database writes; concurrent delivery tasks share an attempt; reconnect limits survive brief connection flaps, rate limits impose a cooldown, and manual reconnect cancels the old scheduled retry. Shared PDA sources and its feature installer were rebuilt. No unrelated modules, main branches or live deployments changed.
 
 ## Next task — deployment and acceptance, not rebuilding the same client
 

@@ -24,6 +24,8 @@ Limits include 32 rooms, 200 explicit rules per room, 8 links per room, 500 live
 
 Per-user/room admission and action budgets live in SQLite and survive closing every socket or hibernating. They add bounded counter writes rather than letting reconnects reset the sending allowance. They are not an account-wide DDoS service. Installer tokens and member authentication endpoints still need deployment-level request abuse controls and realistic load testing.
 
+Typing performs no SQLite writes. It is coalesced across the same account's room sockets to one broadcast per 2.5 seconds. The 120-frame/minute limit (including malformed/typing frames) is attachment-backed and shared across those live sockets; closing all sockets may reset that transient counter, but does not reset the persisted admission/action budgets. Excess frames close the offending socket with 4008; the shared client stops automatic reconnects and enforces a one-minute cooldown. Malformed/oversized frames close with 4002, without automatic retry. Brief welcome/disconnect loops do not reset the client retry budget; only a connection stable for 30 seconds does.
+
 ## Central operator setup (testing environment only)
 
 1. Provision a **separate test deployment/database**, not the live contribution service. Apply migration `0023-faction-node.sql` after the existing permissions migrations.

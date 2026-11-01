@@ -42,6 +42,8 @@ Room access modes: `faction`, `selected`, `leaders`. `member.set` accepts `user_
 
 Writes are serialized and persisted before room configuration propagates. A pending-propagation list survives an interrupted sync. The next request repairs outstanding propagation before proceeding. Failed validation or persistence reloads the stored state, preventing a half-applied in-memory edit. Directory RPC explicitly serializes expected errors because RPC does not preserve custom Error fields.
 
+Room creation accepts an optional `request_id` for backward compatibility. Current clients reuse it while retrying the same unsaved room details. A receipt, bound to the Leader, action and normalized input, is persisted atomically with the room. Retries return that room; changed input with the same ID is refused. Receipts expire after 24 hours and are capped at 200. Link delivery flushes are single-flight within a live room object, so overlapping alarm/send tasks share one attempt; durable outbox IDs and recipient deduplication still handle restarts and uncertain delivery.
+
 ## WebSocket protocol 1
 
 Every server event has `protocol:1`. Client commands:
