@@ -52,6 +52,7 @@ test('membership freshness bounds token expiry and old sessions require refresh'
   const now=Math.floor(Date.now()/1000);f.setSession({iat:now-250});
   const result=await f.call('token',{});assert.equal(result.status,200);
   const claims=await verify(result.data.token,f.central.public,{aud:'node-test',issuer:f.issuer,kind:'chat_access'});
+  assert.equal(result.data.user_name,'Leader');assert.equal(claims.user_name,'Leader','Chat sender name must remain part of the verified identity');
   assert.equal(claims.exp,now+50);
   f.setSession({iat:now-301});assert.equal((await f.call('token',{})).status,428);
   assert.equal((await f.call('members')).status,428);

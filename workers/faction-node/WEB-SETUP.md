@@ -1,5 +1,11 @@
 # Cloudflare website + GitHub setup
 
+## Room layout and verified-name update
+
+An already working faction 46978 setup does not need new SQL, secrets, bindings, registration or another Finish setup run. The client UI changes arrive in the feature extension/PDA downloads. The name fix also requires the existing **slink-chat-central-test** Worker to deploy the latest `feature/faction-node-v1` commit. An enabled GitHub build connection should do this automatically; if it does not, retry its latest build in Cloudflare's website. Do not change the already working build paths or Worker names.
+
+The Central health endpoint reports `version: "0.1.1-room-names"` once this source is deployed. Reconnect a room afterward to refresh the short-lived signed identity. Existing messages may retain names recorded at send time; clients resolve generic historical labels using verified identities/presence/roster names already available, without making a Torn request for every message.
+
 No local installation, terminal, launcher, file download, key copying or account access by the agent is required for this test workflow. Cloudflare's own build service runs the repository tools.
 
 ## Existing test Central

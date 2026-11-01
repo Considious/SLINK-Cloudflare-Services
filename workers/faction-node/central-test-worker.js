@@ -7,7 +7,7 @@ export default {
  async fetch(request,env,ctx){
   const url=new URL(request.url);
   if(url.origin!==TEST_ORIGIN||env.CHAT_CENTRAL_ISSUER!==TEST_ORIGIN||env.CHAT_TEST_FACTION_ID!=='46978')return Response.json({ok:false,error:'Test Central configuration does not match the isolated test deployment.'},{status:503});
-  if(request.method==='GET'&&['/','/api/health'].includes(url.pathname))return Response.json({product:'SLINK Faction Chat Test Central',test_only:true,faction_id:46978,configured:Boolean(env.PERMISSIONS_DB&&env.API_KEY_ENCRYPTION_KEY&&env.CHAT_SIGNING_PRIVATE_JWK)});
+  if(request.method==='GET'&&['/','/api/health'].includes(url.pathname))return Response.json({product:'SLINK Faction Chat Test Central',version:'0.1.1-room-names',test_only:true,faction_id:46978,configured:Boolean(env.PERMISSIONS_DB&&env.API_KEY_ENCRYPTION_KEY&&env.CHAT_SIGNING_PRIVATE_JWK)});
   if(url.pathname==='/api/chat/test-node/bootstrap')return bootstrapApprovedTestNode(request,env);
   const auth=['/api/permissions/auth','/api/permissions/terms'].includes(url.pathname);
   const chat=url.pathname.startsWith('/api/chat/');

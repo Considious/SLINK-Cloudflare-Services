@@ -534,11 +534,11 @@ async function validateTornIdentity(apiKey) {
         throw error;
     }
     const userId = positiveInteger(data?.info?.user?.id);
-    const userName = String(
+    let userName = String(
         data?.info?.user?.name ||
         data?.info?.user?.username ||
-        `Player ${userId}`
-    ).slice(0, 80);
+        ''
+    ).trim().slice(0, 80);
     const factionId = Number(data?.info?.user?.faction_id || 0);
     if (!userId || !Number.isInteger(factionId) || factionId < 0) {
         throw new RequestValidationError('Torn returned an invalid identity.');
@@ -548,7 +548,7 @@ async function validateTornIdentity(apiKey) {
         data?.info?.user?.faction_position ||
         ''
     ).trim().slice(0, 100);
-    if (factionId > 0 && !factionPosition) {
+    if (!userName || (factionId > 0 && !factionPosition)) {
         try {
             const profileResult = await tornIdentityRequest('/v2/user/basic', apiKey);
             if (profileResult.response.ok && !profileResult.data?.error) {
@@ -556,7 +556,10 @@ async function validateTornIdentity(apiKey) {
                     profileResult.data?.basic ||
                     profileResult.data ||
                     {};
-                factionPosition = String(
+                const profileId = positiveInteger(profile?.id || profile?.user_id);
+                if (profileId && profileId !== userId) throw new Error('Profile identity did not match the validated key.');
+                userName = userName || String(profile?.name || profile?.username || '').trim().slice(0, 80);
+                factionPosition = factionPosition || String(
                     profile?.faction?.position ||
                     profile?.faction?.position_name ||
                     profile?.faction_position ||
@@ -568,7 +571,7 @@ async function validateTornIdentity(apiKey) {
             // Authentication still succeeds; role access is resolved next refresh.
         }
     }
-    return { userId, userName, factionId, factionPosition };
+    return { userId, userName:userName || `Player ${userId}`, factionId, factionPosition };
 }
 
 
@@ -3293,6 +3296,7 @@ class RequestValidationError extends Error {
 
 
 export const testing = {
+    validateTornIdentity,
     decryptApiKey,
     encryptApiKey,
     loadPermissions,
