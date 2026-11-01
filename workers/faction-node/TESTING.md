@@ -18,6 +18,8 @@ This is not a penetration test or production acceptance. Registration uses real 
 
 ## Required before release
 
+The test faction is 46978; initial explicit Chat Leader is 3853023. Permission regressions also verify that `admin.*` and client-asserted Leader scopes/roles cannot bypass the exact faction license or explicit Leader list. Test both an unassigned administrator and the assigned Leader without admin scopes; testing only the owner account is insufficient. This adds three passing cases (42 backend cases total); online acceptance still awaits Cloudflare sign-in/provisioning.
+
 1. Deploy separate Central test infrastructure with migration 0023 and a dedicated test signing key. Exercise OAuth installation on a clean customer account and verify initial Leader, routing, bindings and renewal.
 2. Exercise lost registration responses, expired-token recovery, failed D1 transactions and interrupted directory propagation.
 3. Verify deployed hibernation/eviction/resume, deployment restart persistence, reconnect-resistant rate budgets, inactive-room retention deletion and measured usage.

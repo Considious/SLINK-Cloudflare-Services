@@ -65,3 +65,15 @@ test('revocation and expired faction license stop token issue and renewal',async
 test('foreign browser origins are rejected rather than given wildcard CORS',async t=>{
   const f=await fixture(t);assert.equal((await f.call('verification-key',null,{Origin:'https://untrusted.example'})).status,403);
 });
+
+test('admin wildcard cannot bypass the faction license or inject Chat Leader authority',async t=>{
+  // This fixture deliberately grants every scope check, including admin.*.
+  const f=await fixture(t);await f.call('register',await f.registration(await f.setup()));
+  f.setSession({user_id:2,scopes:['admin.*','slink.chat.leader'],roles:['admin','leader']});
+  const result=await f.call('token',{});assert.equal(result.status,200);
+  const claims=await verify(result.data.token,f.central.public,{aud:'node-test',issuer:f.issuer,kind:'chat_access'});
+  assert.deepEqual(claims.roles,[]);assert.deepEqual(claims.scopes,['slink.chat']);
+  f.db.sql.exec('DELETE FROM faction_scope_grants');
+  assert.equal((await f.call('token',{})).status,403);
+  assert.equal((await f.call('setup-token',{faction_id:10,leader_id:1,endpoint:'https://other.example.test'})).status,403);
+});

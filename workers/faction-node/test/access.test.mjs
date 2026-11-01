@@ -9,6 +9,15 @@ test('selected officers-only room is not visible to unassigned members',()=>{
   assert.equal(roomAccess({...base,visibility:'selected'},actor,now).read,false);
   assert.equal(roomAccess(room({user_id:2,can_read:true},'selected'),actor,now).speak,true);
 });
+
+test('admin wildcard never substitutes for the explicitly assigned Chat Leader',()=>{
+  const testRoom={faction_id:46978,visibility:'leaders',leaders:[3853023],members:[]};
+  const admin={user_id:2,faction_id:46978,scopes:['admin.*','slink.chat.leader'],roles:['admin','leader']};
+  assert.equal(roomAccess(testRoom,admin,now).read,false);
+  assert.equal(roomAccess({...testRoom,visibility:'faction'},admin,now).moderate,false);
+  assert.equal(roomAccess(testRoom,{user_id:3853023,faction_id:46978,scopes:[],roles:[]},now).leader,true);
+  assert.equal(roomAccess({...testRoom,leaders:[]},{...admin,user_id:3853023},now).read,false);
+});
 test('timed mute preserves reading and ends at the exact expiry',()=>{
   const r=room({user_id:2,muted:true,muted_until:now+1000});
   assert.equal(roomAccess(r,actor,now).read,true);

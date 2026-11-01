@@ -35,6 +35,10 @@ Customer-owned Worker and SQLite Durable Objects, one room/object, hibernating W
 
 ## Next task — deployment and acceptance, not rebuilding the same client
 
+Owner approved a separate Cloudflare test Worker/database for faction **46978**, with initial Chat Leader **3853023**. Do not grant chat administration through `admin.*`. Room administration already uses the explicit node Leader list; Central licensing requires the exact faction `slink.chat` grant, not a wildcard bypass. Added regressions exercise a wildcard-admin non-Leader, the explicit Leader without admin scopes, and rejection after removing the faction license. Central's existing `admin.*` requirement for issuing setup tokens is provisioning authority, not room membership or Leader authority. No production permission behavior was changed.
+
+Cloudflare browser is currently at sign-in; the owner must sign in before resources can be created. No test resources or license grants have been created yet. Never copy production private signing/session secrets into the test environment as a shortcut. Configure coherent test authentication/client endpoints after the actual test issuer is known.
+
 1. Provision/authorize a separate Central test deployment/database/key and a customer test node. The new `/api/chat/*` routes are NOT live. Existing client constants currently target the established Central origin; test-environment targeting/auth must be configured coherently before online testing. Do not simply push this into main to make the routes appear.
 2. Validate actual isolated extension WebSocket origin/CSP and physical PDA native requests/WebSockets. The ordinary Chrome UI test passed; the additional isolated-extension probe could not start Edge under the local environment (crash-handler/browser launch failure), so that policy result is unverified. No bypass or periodic network keepalive was added.
 3. Exercise deployed hibernation, clean-account installer/upgrade, interrupted saves, retention, load/abuse/billing, full Torn navigation and real provider media responses. Review terms/privacy for the new faction-owned chat before production.

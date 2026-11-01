@@ -4,6 +4,16 @@ import {harness,loadClass,config,certificate,leader} from './fault-harness.mjs';
 import {b64,hmac} from '../protocol.js';
 const Directory=await loadClass('directory.js','FactionDirectory'),Room=await loadClass('room.js','ChatRoom');
 
+test('test faction grants management only to its explicitly bootstrapped Leader, never admin wildcard',async t=>{
+ const h=harness(t);h.env.SLINK_FACTION_ID='46978';const directory=new Directory(h.ctx,h.env);
+ assert.equal((await directory.invoke('bootstrap',[{node_id:'node-a',faction_id:46978,leader_id:3853023}])).ok,true);
+ const admin={user_id:2,faction_id:46978,scopes:['admin.*','slink.chat.leader'],roles:['leader']};
+ assert.equal((await directory.invoke('list',[admin])).value.leader,false);
+ assert.equal((await directory.invoke('admin',[admin])).error.code,'LEADER_REQUIRED');
+ assert.equal((await directory.invoke('mutate',[admin,'leader.set',{user_id:2,enabled:true}])).error.code,'LEADER_REQUIRED');
+ assert.equal((await directory.invoke('admin',[{user_id:3853023,faction_id:46978,scopes:[]}])).ok,true);
+});
+
 test('failed directory writes preserve previous settings and unrelated member rules',async t=>{
  const h=harness(t),directory=new Directory(h.ctx,h.env);assert.equal((await directory.invoke('bootstrap',[certificate])).ok,true);
  await directory.invoke('mutate',[leader,'member.set',{room_id:'general',user_id:2,can_speak:false}]);h.putFault='before';
