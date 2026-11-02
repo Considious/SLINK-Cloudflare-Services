@@ -21,14 +21,14 @@ test('test wrapper blocks unrelated APIs and wrong deployment targets without ex
  for(const path of ['/api/user-backup','/api/admin/scopes','/api/chat/setup-token','/api/chat/revoke'])assert.equal((await worker.fetch(new Request(TEST_ORIGIN+path),env)).status,404);
  assert.equal((await worker.fetch(new Request('https://other.example.test/'),env)).status,503);
  const health=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/health'),env)).json();assert.equal(health.configured,false);assert.equal(health.test_only,true);
- const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);assert.equal(health.terms.version,terms.terms.version);assert.equal(health.terms.sha256,terms.terms.sha256);assert.equal(health.version,'0.1.2-policy-sync');
+ const terms=await (await worker.fetch(new Request(TEST_ORIGIN+'/api/permissions/terms'),env)).json();assert.ok(terms.terms.sha256);assert.equal(health.terms.version,terms.terms.version);assert.equal(health.terms.sha256,terms.terms.sha256);assert.equal(health.version,'0.1.3-shared-permissions');
  const origin='chrome-extension://'+'a'.repeat(32),protectedRequest=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:origin}}),{...env,PERMISSIONS_DB:{}});assert.equal(protectedRequest.status,401);assert.equal(protectedRequest.headers.get('Access-Control-Allow-Origin'),origin);
  const foreign=await worker.fetch(new Request(TEST_ORIGIN+'/api/chat/token',{method:'POST',headers:{Origin:'https://untrusted.example'}}),{...env,PERMISSIONS_DB:{}});assert.equal(foreign.status,403);
 });
-test('test deployment has only its new D1 database and no production buckets, schedules or secrets',async()=>{
+test('hosted Central uses production permissions with a read-only legacy migration source, without buckets or schedules',async()=>{
  const config=JSON.parse(await readFile(new URL('../test-central/wrangler.jsonc',import.meta.url),'utf8'));
  assert.equal(config.main,'../central-test-worker.js');await readFile(new URL('../test-central/'+config.main,import.meta.url),'utf8');
- assert.equal(config.name,'slink-chat-central-test');assert.equal(config.vars.CHAT_CENTRAL_ISSUER,TEST_ORIGIN);assert.equal(config.d1_databases[0].database_id,'9a10280e-47d7-4a43-aff9-7eca42f12b6c');assert.equal(config.r2_buckets,undefined);assert.equal(config.triggers,undefined);assert.equal(JSON.stringify(config).includes('2debd2fe-69b6-42e3-acc9-2a567d170928'),false);
+ assert.equal(config.name,'slink-chat-central-test');assert.equal(config.vars.CHAT_CENTRAL_ISSUER,TEST_ORIGIN);assert.equal(config.vars.CHAT_PERMISSION_STORE,'shared');assert.equal(config.d1_databases[0].binding,'PERMISSIONS_DB');assert.equal(config.d1_databases[0].database_id,'2debd2fe-69b6-42e3-acc9-2a567d170928');assert.equal(config.d1_databases[1].binding,'LEGACY_CHAT_DB');assert.equal(config.d1_databases[1].database_id,'9a10280e-47d7-4a43-aff9-7eca42f12b6c');assert.equal(config.r2_buckets,undefined);assert.equal(config.triggers,undefined);
 });
 
 test('old Central configuration remains compatible and both web build roots use pinned self-contained tooling',async()=>{

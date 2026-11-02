@@ -1,5 +1,19 @@
 # Cloudflare website + GitHub setup
 
+## Shared permissions cutover
+
+The existing Chat Central now deploys with `PERMISSIONS_DB` bound to **slink-permissions** (`2debd2fe-69b6-42e3-acc9-2a567d170928`), the same database as normal Access. `LEGACY_CHAT_DB` binds the old test database only as a read-only transfer source. No new database is created. Both the canonical and compatibility Wrangler configurations include these bindings.
+
+The first authenticated/chat request creates the small registry tables if absent and transfers only the existing approved faction 46978 node registration and its still-active exact `slink.chat` grant. Grant expiry is preserved, not extended. Existing production grants, revocations and registrations are never overwritten; expired grants are not renewed. General user/admin grants and signing secrets are not copied. A durable completion marker prevents future dependency on the legacy registry. The legacy database is retained, not deleted, for rollback evidence.
+
+Keep the existing Chat Central Worker name, issuer, runtime secrets, node Worker, Durable Object namespaces and identity. Those preserve node certificates, rooms, messages and explicitly assigned Leaders. A separate short-lived chat transport session still exists; it now records acceptance and reads grants in the shared permissions database rather than maintaining a second permission system. The retained `test` address is a compatibility name, not the active permissions source.
+
+Deploy Chat Central from `main` using either its existing compatibility command or root `workers/faction-node/test-central`, build `npm ci`, deploy `npx wrangler deploy`. No manual SQL or new setup registration is required for this cutover. Do not run `test-database.sql` against production. A successful deployment reports `0.1.3-shared-permissions`, `permission_store: shared` and current policy metadata at `/api/health`. That health label describes the deployed configuration; a successful chat connection confirms the transfer completed. A migration conflict is reported explicitly rather than silently replacing data.
+
+The previous Central and node GitHub builds failed, with no error text exposed by GitHub. Publishing source alone does not prove deployment succeeded. If the new Central build fails, the first Cloudflare build ERROR line is needed; do not change random settings, recreate databases or clear acceptance to troubleshoot it.
+
+The older sections below describe historical setup. Their statements about keeping the isolated test permissions binding are superseded by this cutover.
+
 ## Main branch going forward
 
 The faction room implementation is now published on main. For both existing chat Workers, change Settings → Builds → Production branch to **main** once, then keep the working root directories, commands, bindings, secrets and node identity unchanged. Future main commits can then deploy normally. The repository cannot change that dashboard branch selection itself. No new SQL or registration is required for the working faction 46978 installation.

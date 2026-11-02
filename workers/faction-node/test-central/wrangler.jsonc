@@ -5,11 +5,11 @@
  "compatibility_flags":["nodejs_compat","global_fetch_strictly_public"],
  "workers_dev":true,
  "keep_vars":true,
- "vars":{"SLINK_CHAT_BUILD":"2026-11-01-policy-sync",
+ "vars":{"SLINK_CHAT_BUILD":"2026-11-02-shared-permissions","CHAT_PERMISSION_STORE":"shared",
   "CHAT_TEST_FACTION_ID":"46978",
   "CHAT_CENTRAL_ISSUER":"https://slink-chat-central-test.richard-johnson554.workers.dev",
   "CHAT_ALLOWED_ORIGINS":"https://www.torn.com"
  },
- "d1_databases":[{"binding":"PERMISSIONS_DB","database_name":"slink-faction-chat-test","database_id":"9a10280e-47d7-4a43-aff9-7eca42f12b6c"}],
+ "d1_databases":[{"binding":"PERMISSIONS_DB","database_name":"slink-permissions","database_id":"2debd2fe-69b6-42e3-acc9-2a567d170928"},{"binding":"LEGACY_CHAT_DB","database_name":"slink-faction-chat-test","database_id":"9a10280e-47d7-4a43-aff9-7eca42f12b6c"}],
  "observability":{"enabled":false}
 }
