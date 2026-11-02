@@ -10,7 +10,7 @@ export function roomAccess(room,actor,now=Date.now()){
   const restricted=room.visibility!=='faction';
   const granted=Boolean(entry&&entry.can_read!==false&&(!entry.access_until||entry.access_until>now));
   const blocked=Boolean(entry?.blocked&&(!entry.blocked_until||entry.blocked_until>now));
-  const read=room.visibility!=='leaders'&&!blocked&&(restricted?granted:entry?.can_read!==false);
+  const read=room.visibility!=='leaders'&&!blocked&&(restricted?(granted||entry?.can_read!==false&&(room.allowed_positions||[]).includes(actor.faction_position)):entry?.can_read!==false);
   const muted=Boolean(entry?.muted&&(!entry.muted_until||entry.muted_until>now));
   const speak=read&&!muted&&entry?.can_speak!==false;
   return {read,speak,moderate:read&&entry?.role==='moderator',leader:false,muted:read&&muted,muted_until:muted?entry?.muted_until||null:null,reason:!read?'You do not currently have access to this room.':!speak?'You can read this room, but do not currently have permission to send messages.':null};

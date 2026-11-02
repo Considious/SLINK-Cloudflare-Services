@@ -69,7 +69,7 @@ const textEncoder = new TextEncoder();
 
 const worker = {
     async fetch(request, env, ctx) {
-        const factionNode = await handleFactionNode(request, env, {session:permissionSession,hasScope});
+        const factionNode = await handleFactionNode(request, env, {session:permissionSession,hasScope,identity:validateTornIdentity});
         if (factionNode) return factionNode;
         if (request.method === 'OPTIONS') {
             return new Response(null, { status: 204, headers: corsHeaders() });

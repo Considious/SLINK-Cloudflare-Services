@@ -1,6 +1,7 @@
 import {DurableObject} from 'cloudflare:workers';
 import {ChatError,ensure,id,text,userId} from './protocol.js';
 import {membership,roomAccess} from './access.js';
+function positionGrants(values){ensure(Array.isArray(values)&&values.length<=100&&values.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');return [...new Set(values)];}
 
 export class FactionDirectory extends DurableObject{
   constructor(ctx,env){super(ctx,env);this.ctx=ctx;this.env=env;this.state=null;this.rates=new Map();ctx.blockConcurrencyWhile(async()=>{await this.reload();});}
@@ -19,7 +20,7 @@ export class FactionDirectory extends DurableObject{
   requireLeader(actor){ensure(this.leader(actor),'LEADER_REQUIRED','Only an assigned SLINK Chat Leader can change this setting.',403);const now=Date.now(),key=actor.user_id,entry=this.rates.get(key)||{at:now,count:0};if(now-entry.at>=60000){entry.at=now;entry.count=0;}ensure(entry.count++<30,'ADMIN_RATE_LIMIT','Too many room changes. Wait a minute and try again.',429);this.rates.set(key,entry);}
   async mutate(actor,action,input){this.requireLeader(actor);
     if(action==='room.create'){
-      const details={name:text(input.name,60),description:typeof input.description==='string'?input.description.slice(0,300):'',visibility:['faction','selected','leaders'].includes(input.visibility)?input.visibility:'selected'},requestId=input.request_id===undefined?null:id(input.request_id),fingerprint=JSON.stringify(details);
+      const details={name:text(input.name,60),description:typeof input.description==='string'?input.description.slice(0,300):'',visibility:['faction','selected','leaders'].includes(input.visibility)?input.visibility:'selected',allowed_positions:positionGrants(input.allowed_positions||[])},requestId=input.request_id===undefined?null:id(input.request_id),fingerprint=JSON.stringify(details);
       this.state.operations=(this.state.operations||[]).filter(operation=>operation.at>Date.now()-86400000);
       const previous=requestId&&this.state.operations.find(operation=>operation.user_id===actor.user_id&&operation.request_id===requestId&&operation.action===action);
       if(previous){ensure(previous.fingerprint===fingerprint,'REQUEST_REUSED','This room request was already used with different details. Start a new room request.',409);if(this.state.pending_sync?.includes(previous.room_id))await this.sync(this.room(previous.room_id));return {room_id:previous.room_id,resumed:true};}
@@ -29,8 +30,14 @@ export class FactionDirectory extends DurableObject{
     }
     if(action==='leader.set'){const target=userId(input.user_id);ensure(input.enabled===true||input.enabled===false,'INVALID_ACTION','Choose whether to grant or revoke Leader access.');if(!input.enabled)ensure(this.state.leaders.length>1||!this.state.leaders.includes(target),'LAST_LEADER','Assign another Leader before removing the last Leader.');if(input.enabled&&!this.state.leaders.includes(target))this.state.leaders.push(target);if(!input.enabled)this.state.leaders=this.state.leaders.filter(uid=>uid!==target);this.record(actor,action,target);for(const room of this.state.rooms)room.revision++;await this.save();for(const room of this.state.rooms)await this.sync(room);return {ok:true};}
     const room=this.room(id(input.room_id));
-    if(action==='room.update'){if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);if(input.visibility!==undefined){ensure(['faction','selected','leaders'].includes(input.visibility),'INVALID_VISIBILITY','Choose a supported room access mode.');room.visibility=input.visibility;}}
+    if(action==='room.update'){if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);if(input.allowed_positions!==undefined){ensure(Array.isArray(input.allowed_positions)&&input.allowed_positions.length<=100&&input.allowed_positions.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');room.allowed_positions=[...new Set(input.allowed_positions)];}if(input.visibility!==undefined){ensure(['faction','selected','leaders'].includes(input.visibility),'INVALID_VISIBILITY','Choose a supported room access mode.');room.visibility=input.visibility;}}
     else if(action==='room.archive'){room.archived=true;room.links=room.links.map(link=>({...link,active:false}));}
+    else if(action==='members.set'){
+      ensure(Array.isArray(input.user_ids)&&input.user_ids.length>0&&input.user_ids.length<=200&&typeof input.can_read==='boolean','INVALID_MEMBERS','Choose faction members and whether to grant room access.');
+      const ids=[...new Set(input.user_ids.map(userId))];ensure(!ids.some(uid=>this.state.leaders.includes(uid)),'LEADER_PROTECTED','Room overrides cannot remove a Chat Leader.');
+      const updates=ids.map(uid=>membership({user_id:uid,can_read:input.can_read,...(input.can_read?{access_until:input.access_until??null}:{})},Date.now(),room.members.find(m=>m.user_id===uid)||{can_read:room.visibility==='faction'}));
+      const merged=new Map(room.members.map(entry=>[entry.user_id,entry]));for(const entry of updates)merged.set(entry.user_id,entry);ensure(merged.size<=200,'MEMBER_LIMIT','This room has too many explicit member rules.');room.members=[...merged.values()];
+    }
     else if(action==='member.set'){
       const target=userId(input.user_id),previous=room.members.find(m=>m.user_id===target);
       // A mute-only update must not silently grant read access or erase an existing restriction.

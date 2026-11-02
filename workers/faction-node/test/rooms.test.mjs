@@ -17,7 +17,20 @@ test('real Worker and SQLite rooms enforce Leader changes on existing WebSockets
   async function request(path,auth,payload){const response=await mf.dispatchFetch(origin+path,{method:payload?'POST':'GET',headers:{Authorization:'Bearer '+auth,'Content-Type':'application/json'},...(payload?{body:JSON.stringify(payload)}:{})});return {status:response.status,data:await response.json()};}
   const admin=async payload=>{const result=await request('/api/admin',leader,payload);assert.equal(result.status,200,JSON.stringify(result.data));return result.data;};
   assert.equal((await request('/api/admin',member)).status,403);
+  // Real Worker/SQLite HTTP path for WebViews that refuse WebSocket creation.
+  const sync=await request('/api/rooms/general/sync',member);assert.equal(sync.status,200);assert.equal(sync.data.access.speak,true);
+  const event={type:'send',client_id:'https-once',command_id:'https-once',content:{type:'text',text:'HTTPS member message'}};
+  const sent=await request('/api/rooms/general/events',member,event);assert.equal(sent.status,200);assert.equal(sent.data.events[0].type,'ack');
+  const repeat=await request('/api/rooms/general/events',member,event);assert.equal(repeat.data.events[0].message.message_id,sent.data.events[0].message.message_id);
+  const latest=await request('/api/rooms/general/sync',member);assert.equal(latest.data.messages.length,1);assert.equal(latest.data.messages[0].display_name,'Test 2');
+  await admin({action:'member.set',room_id:'general',user_id:2,muted:true});
+  const muted=await request('/api/rooms/general/events',member,{...event,client_id:'muted-https'});assert.equal(muted.data.events[0].code,'ROOM_MUTED');
+  await admin({action:'member.remove',room_id:'general',user_id:2});
+  assert.equal((await request('/api/rooms/general/sync','bad-token')).status,401);
   const {room_id}=await admin({action:'room.create',name:'Officers',visibility:'selected'});
+  await admin({action:'members.set',room_id,user_ids:[4,5],can_read:true,access_until:Date.now()+60000});
+  assert.equal((await request('/api/rooms/'+room_id+'/history',await token(4))).status,200);
+  const current=(await request('/api/admin',leader)).data.rooms.find(room=>room.room_id===room_id);assert.equal(current.members.filter(entry=>[4,5].includes(entry.user_id)&&entry.can_read).length,2);
   await admin({action:'member.set',room_id,user_id:3,muted:true});
   assert.equal((await request('/api/rooms/'+room_id+'/history',await token(3))).status,403);
   const invalidUpdate=await request('/api/admin',leader,{action:'room.update',room_id,name:'Should not stick',visibility:'invalid'});

@@ -1,5 +1,5 @@
 import {DurableObject} from 'cloudflare:workers';
-import {PROTOCOL,ACCESS_TTL,ChatError,body,json,ensure,id,messageContent,encoder,errorResponse,hmac,verifyHmac,verify} from './protocol.js';
+import {PROTOCOL,ACCESS_TTL,ChatError,body,readText,json,ensure,id,messageContent,encoder,errorResponse,hmac,verifyHmac,verify} from './protocol.js';
 import {roomAccess,canEditMessage} from './access.js';
 
 export class ChatRoom extends DurableObject{
@@ -38,6 +38,18 @@ export class ChatRoom extends DurableObject{
   async fetch(request){try{
     // Only the router Worker calls this binding. It overwrites identity headers after verification.
     const actor=JSON.parse(request.headers.get('x-slink-actor')||'null'),u=new URL(request.url);ensure(actor,'AUTH_REQUIRED','Sign in through SLINK first.',401);
+    if(u.pathname.endsWith('/sync')&&request.method==='GET'){
+      const access=this.valid(actor);ensure(access.read,'ROOM_FORBIDDEN',access.reason,403);this.budget(actor.user_id,'https_reads',60000,30);
+      const after=Number(u.searchParams.get('after')||0),changed=Number(u.searchParams.get('changed')||0),stamp=Date.now();ensure(Number.isSafeInteger(after)&&after>=0&&Number.isSafeInteger(changed)&&changed>=0,'INVALID_CURSOR','Reconnect to reset this room cursor.');
+      const history=this.history(actor),delta=this.all('SELECT * FROM messages WHERE seq>? ORDER BY seq LIMIT 201',after),updates=changed?this.all('SELECT * FROM messages WHERE edited_at>=? OR deleted_at>=? ORDER BY seq LIMIT 301',changed,changed):[];
+      ensure(updates.length<=300,'CHAT_RESYNC_REQUIRED','Too many messages changed at once. Press Reconnect to refresh this room.',409);
+      const more=delta.length>200,batch=delta.slice(0,200),messages=[...new Map([...history.messages,...batch.map(row=>this.present(row)),...updates.map(row=>this.present(row))].map(message=>[message.message_id,message])).values()];
+      return json({protocol:PROTOCOL,type:'welcome',access,...history,messages,presence:this.presence(),after:batch.at(-1)?.seq||after,changed:more?changed:stamp,more});
+    }
+    if(u.pathname.endsWith('/events')&&request.method==='POST'){
+      const raw=await readText(request,8192),input=JSON.parse(raw);ensure(['send','read','typing','edit','delete'].includes(input?.type),'INVALID_EVENT','Unsupported chat action.');this.valid(actor);this.budget(actor.user_id,'https_events',60000,120);
+      const events=[],socket={deserializeAttachment:()=>actor,send:raw=>events.push(JSON.parse(raw)),close(){}};await this.webSocketMessage(socket,raw);if(['edit','delete'].includes(input.type)&&events.some(event=>event.type==='action_ack')){const row=this.all('SELECT * FROM messages WHERE message_id=?',input.message_id)[0];events.unshift({protocol:PROTOCOL,type:'message_update',message:this.present(row)});}return json({events});
+    }
     if(u.pathname.endsWith('/history'))return json(this.history(actor,Number(u.searchParams.get('before'))||Number.MAX_SAFE_INTEGER));
     ensure(request.headers.get('Upgrade')?.toLowerCase()==='websocket','WEBSOCKET_REQUIRED','Open this room through SLINK chat.',426);
     ensure(this.valid(actor).read,'ROOM_FORBIDDEN','You cannot read this room.',403);
@@ -57,7 +69,7 @@ export class ChatRoom extends DurableObject{
     try{const actor=this.actor(ws);this.frameRate(actor);ensure(typeof raw==='string'&&encoder.encode(raw).length<=8192,'MESSAGE_TOO_LARGE','This message exceeds the 8 KB transport limit.',413);const m=JSON.parse(raw);ensure(m&&typeof m==='object'&&!Array.isArray(m),'INVALID_EVENT','This chat action could not be read.');commandId=typeof m.command_id==='string'?id(m.command_id):null;const access=this.valid(actor);ensure(access.read,'ROOM_FORBIDDEN','Your access to this room has ended.',403);
       if(m.type==='typing'){ensure(access.speak,'ROOM_MUTED',access.reason,403);const peers=this.ctx.getWebSockets().filter(peer=>this.actor(peer).user_id===actor.user_id),last=Math.max(0,...peers.map(peer=>this.actor(peer).typing_at||0));if(Date.now()-last>2500){for(const peer of peers){const attachment=this.actor(peer);attachment.typing_at=Date.now();peer.serializeAttachment(attachment);}this.broadcast({type:'typing',user_id:actor.user_id,expires_at:Date.now()+5000});}return;}
       this.controlRate(actor);
-      if(m.type==='auth'){const claims=await verify(m.token,typeof this.env.SLINK_PUBLIC_VERIFY_KEY==='string'?JSON.parse(this.env.SLINK_PUBLIC_VERIFY_KEY):this.env.SLINK_PUBLIC_VERIFY_KEY,{issuer:this.env.SLINK_CENTRAL_URL,aud:this.env.SLINK_NODE_ID,kind:'chat_access',maxTtl:ACCESS_TTL});ensure(claims.user_id===actor.user_id&&claims.faction_id===actor.faction_id&&claims.scopes?.includes('slink.chat'),'IDENTITY_CHANGED','Reconnect to change chat accounts.',403);const current=this.actor(ws);ws.serializeAttachment({...current,exp:claims.exp,user_name:claims.user_name});this.send(ws,{type:'auth_ack',expires_at:claims.exp*1000});await this.schedule();return;}
+      if(m.type==='auth'){const claims=await verify(m.token,typeof this.env.SLINK_PUBLIC_VERIFY_KEY==='string'?JSON.parse(this.env.SLINK_PUBLIC_VERIFY_KEY):this.env.SLINK_PUBLIC_VERIFY_KEY,{issuer:this.env.SLINK_CENTRAL_URL,aud:this.env.SLINK_NODE_ID,kind:'chat_access',maxTtl:ACCESS_TTL});ensure(claims.user_id===actor.user_id&&claims.faction_id===actor.faction_id&&claims.scopes?.includes('slink.chat'),'IDENTITY_CHANGED','Reconnect to change chat accounts.',403);const current=this.actor(ws);ws.serializeAttachment({...current,exp:claims.exp,user_name:claims.user_name,faction_position:claims.faction_position});this.send(ws,{type:'auth_ack',expires_at:claims.exp*1000});await this.schedule();return;}
       if(m.type==='read'){const seq=Number(m.seq);ensure(Number.isSafeInteger(seq)&&seq>=0,'INVALID_CURSOR','The read position is invalid.');const last=this.all('SELECT COALESCE(MAX(seq),0) AS seq FROM messages')[0].seq;ensure(seq<=last,'INVALID_CURSOR','The read position is ahead of this room.');this.sql.exec('INSERT INTO reads(user_id,seq) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET seq=excluded.seq WHERE reads.seq<excluded.seq',actor.user_id,seq);this.send(ws,{type:'read_ack',seq});return;}
       this.rate(actor);
       if(m.type==='send'){

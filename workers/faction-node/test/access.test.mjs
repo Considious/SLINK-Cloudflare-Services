@@ -5,6 +5,15 @@ const now=1800000000000;
 const actor={user_id:2,faction_id:10};
 const base={faction_id:10,visibility:'faction',leaders:[1],members:[]};
 const room=(entry,visibility='faction')=>({...base,visibility,members:[entry]});
+
+test('signed faction positions allow role rooms but cannot bypass a member block, mute or Leaders-only rule',()=>{
+ const officers={...base,visibility:'selected',allowed_positions:['Officer']},officer={...actor,faction_position:'Officer'};
+ assert.equal(roomAccess(officers,officer,now).speak,true);assert.equal(roomAccess(officers,actor,now).read,false);
+ assert.equal(roomAccess({...officers,members:[{user_id:2,can_read:false}]},officer,now).read,false);
+ assert.equal(roomAccess({...officers,members:[{user_id:2,muted:true}]},officer,now).speak,false);
+ assert.equal(roomAccess({...officers,visibility:'leaders'},officer,now).read,false);
+ assert.equal(roomAccess({...officers,archived:true},officer,now).read,false);
+});
 test('selected officers-only room is not visible to unassigned members',()=>{
   assert.equal(roomAccess({...base,visibility:'selected'},actor,now).read,false);
   assert.equal(roomAccess(room({user_id:2,can_read:true},'selected'),actor,now).speak,true);

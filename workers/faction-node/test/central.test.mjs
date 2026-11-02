@@ -19,7 +19,7 @@ async function fixture(t){const db=database();db.sql.exec(await readFile(new URL
   async function call(path,payload,headers={}){const response=await handleFactionNode(new Request(issuer+'/api/chat/'+path,{method:payload?'POST':'GET',headers:{'Content-Type':'application/json',...headers},...(payload?{body:JSON.stringify(payload)}:{})}),env,services);return {status:response.status,data:await response.json()};}
   async function setup(endpoint='https://node.example.test'){const result=await call('setup-token',{faction_id:10,leader_id:1,endpoint});assert.equal(result.status,200);return result.data.registration_token;}
   async function registration(token,nodeId='node-test',key=node,endpoint='https://node.example.test'){const now=Math.floor(Date.now()/1000);return {registration_token:token,node_id:nodeId,faction_id:10,endpoint,protocol:1,public_key:key.public,proof:await sign({iss:nodeId,aud:'slink-node-registration',kind:'node_registration',protocol:1,iat:now,exp:now+120,token_hash:await hash(token),endpoint,faction_id:10},key.private)};}
-  return {db,central,node,env,issuer,call,setup,registration,setSession:value=>{session={...session,...value};}};
+  return {db,central,node,env,issuer,call,setup,registration,services,setSession:value=>{session={...session,...value};}};
 }
 test('registration binds identity, retries safely and cannot be replaced with a new key',async t=>{
   const f=await fixture(t),token=await f.setup(),input=await f.registration(token);
@@ -77,4 +77,22 @@ test('admin wildcard cannot bypass the faction license or inject Chat Leader aut
   f.db.sql.exec('DELETE FROM faction_scope_grants');
   assert.equal((await f.call('token',{})).status,403);
   assert.equal((await f.call('setup-token',{faction_id:10,leader_id:1,endpoint:'https://other.example.test'})).status,403);
+});
+
+test('empty shared member directory refreshes from Torn, caches results, and preserves roster on API failure',async t=>{
+ const f=await fixture(t);f.db.sql.exec('CREATE TABLE faction_member_roster(faction_id INTEGER,user_id INTEGER,user_name TEXT,position TEXT,level INTEGER,first_seen_at INTEGER,last_seen_at INTEGER,active INTEGER,updated_at INTEGER,PRIMARY KEY(faction_id,user_id))');
+ const originalFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=originalFetch;});let calls=0;
+ f.services.identity=async key=>{assert.equal(key,'synthetic-member-key');return {userId:1,factionId:10};};
+ globalThis.fetch=async(url,options)=>{calls++;assert.equal(url,'https://api.torn.com/v2/faction/10/members');assert.equal(options.headers.Authorization,'ApiKey synthetic-member-key');return Response.json({members:[{id:1,name:'Leader',position:'Leader',level:90},{id:2,name:'Actual Member',position:'Officer',level:50}]});};
+ assert.deepEqual((await f.call('members')).data.members,[]);
+ const result=await f.call('members',{api_key:'synthetic-member-key'});assert.equal(result.status,200);assert.equal(result.data.members.length,2);assert.equal(result.data.members.find(m=>m.user_id===2).position,'Officer');
+ await f.call('members',{api_key:'synthetic-member-key'});assert.equal(calls,1,'Cached roster avoids repeated Torn requests');
+ f.db.sql.exec('UPDATE faction_member_roster SET updated_at=1');globalThis.fetch=async()=>Response.json({error:{code:5}},{status:429});
+ assert.equal((await f.call('members',{api_key:'synthetic-member-key'})).status,502);assert.equal((await f.call('members')).data.members.length,2,'Failed refresh must not wipe directory');
+ f.services.identity=async()=>({userId:999,factionId:10});assert.equal((await f.call('members',{api_key:'wrong-account-key'})).status,403);
+});
+
+test('room role claims come from verified permission identity, not request input',async t=>{
+ const f=await fixture(t);await f.call('register',await f.registration(await f.setup()));f.setSession({faction_position:'Officer'});
+ const result=await f.call('token',{faction_position:'Leader',roles:['leader']});const claims=await verify(result.data.token,f.central.public,{aud:'node-test',issuer:f.issuer,kind:'chat_access'});assert.equal(claims.faction_position,'Officer');assert.deepEqual(claims.roles,[]);
 });
