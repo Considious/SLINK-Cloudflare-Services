@@ -23,6 +23,11 @@ test('real Worker and SQLite rooms enforce Leader changes on existing WebSockets
   const sent=await request('/api/rooms/general/events',member,event);assert.equal(sent.status,200);assert.equal(sent.data.events[0].type,'ack');
   const repeat=await request('/api/rooms/general/events',member,event);assert.equal(repeat.data.events[0].message.message_id,sent.data.events[0].message.message_id);
   const latest=await request('/api/rooms/general/sync',member);assert.equal(latest.data.messages.length,1);assert.equal(latest.data.messages[0].display_name,'Test 2');
+  const restriction={message_id:sent.data.events[0].message.message_id,action:'mute',duration_minutes:15};assert.equal((await request('/api/rooms/general/moderate',member,restriction)).status,403);
+  await admin({action:'member.set',room_id:'general',user_id:3,role:'moderator',can_read:true});const moderator=await token(3);
+  assert.equal((await request('/api/rooms/general/moderate',moderator,restriction)).status,200);assert.equal((await request('/api/rooms/general/sync',member)).data.access.speak,false);
+  await admin({action:'member.set',room_id:'general',user_id:2,muted:false});
+  assert.equal((await request('/api/rooms/general/moderate',moderator,{...restriction,action:'kick'})).status,200);assert.equal((await request('/api/rooms/general/history',member)).status,403);await admin({action:'member.set',room_id:'general',user_id:2,blocked:false});
   await admin({action:'member.set',room_id:'general',user_id:2,muted:true});
   const muted=await request('/api/rooms/general/events',member,{...event,client_id:'muted-https'});assert.equal(muted.data.events[0].code,'ROOM_MUTED');
   await admin({action:'member.remove',room_id:'general',user_id:2});

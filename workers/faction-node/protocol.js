@@ -1,4 +1,4 @@
-export const PROTOCOL=1, VERSION='0.1.1', ACCESS_TTL=300;
+export const PROTOCOL=1, VERSION='0.1.2', ACCESS_TTL=300;
 export const encoder=new TextEncoder();
 export class ChatError extends Error{constructor(code,message,status=400){super(message);this.code=code;this.status=status;}}
 export function ensure(test,code,message,status=400){if(!test)throw new ChatError(code,message,status);}
