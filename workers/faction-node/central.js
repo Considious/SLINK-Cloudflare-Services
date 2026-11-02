@@ -56,7 +56,10 @@ export async function handleFactionNode(request,env,services){const path=new URL
       const node=await db.prepare("SELECT * FROM faction_chat_nodes WHERE faction_id=? AND status='active'").bind(factionId).first();ensure(node,'NODE_NOT_REGISTERED','Your faction has not connected its chat node yet.',404);
       const exp=Math.min(session.iat+ACCESS_TTL,session.exp);const claims={iss:centralUrl(env),aud:node.node_id,kind:'chat_access',protocol:PROTOCOL,iat:now,exp,user_id:session.user_id,user_name:session.user_name||'Player '+session.user_id,faction_id:factionId,scopes:['slink.chat'],roles:[],jti:crypto.randomUUID()};return json({ok:true,token:await sign(claims,signingKey(env)),expires_at:exp*1000,endpoint:node.endpoint,node_id:node.node_id,user_id:session.user_id,user_name:claims.user_name,faction_id:factionId},200,cors);
     }
-    if(path==='/api/chat/members'&&request.method==='GET'){const result=await db.prepare('SELECT user_id,user_name,position,updated_at FROM faction_member_roster WHERE faction_id=? AND active=1 ORDER BY user_name LIMIT 200').bind(factionId).all();return json({members:result.results||[],source:'last_verified_faction_roster'},200,cors);}
+    if(path==='/api/chat/members'&&request.method==='GET'){
+      try{const result=await db.prepare('SELECT user_id,user_name,position,updated_at FROM faction_member_roster WHERE faction_id=? AND active=1 ORDER BY user_name LIMIT 200').bind(factionId).all();return json({members:result.results||[],source:'last_verified_faction_roster'},200,cors);}
+      catch(error){if(/no such table|no such column/i.test(String(error?.message||error)))throw new ChatError('CHAT_ROSTER_SCHEMA_MISSING','Room management could not load the shared faction member directory because its database table or columns are missing. The chat service needs the roster schema update; replacing your key or accepting terms again will not fix it. [SLINK_SERVER_SETUP]',503);throw error;}
+    }
     throw new ChatError('NOT_FOUND','This faction chat endpoint does not exist.',404);
   }catch(e){const response=errorResponse(e),headers=new Headers(response.headers);for(const [key,value]of Object.entries(cors))headers.set(key,value);return new Response(response.body,{status:response.status,headers});}
 }

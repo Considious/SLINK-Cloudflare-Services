@@ -24,6 +24,10 @@ async function migrate(env){
   db.prepare("CREATE TABLE IF NOT EXISTS faction_chat_nodes (faction_id INTEGER PRIMARY KEY CHECK(faction_id>0),node_id TEXT UNIQUE NOT NULL,endpoint TEXT UNIQUE NOT NULL,public_key TEXT NOT NULL,protocol INTEGER NOT NULL,leader_id INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)"),
   db.prepare('CREATE TABLE IF NOT EXISTS faction_chat_setup_tokens (token_hash TEXT PRIMARY KEY,faction_id INTEGER NOT NULL,leader_id INTEGER NOT NULL,endpoint TEXT NOT NULL,expires_at INTEGER NOT NULL,used_at INTEGER,consumed_by TEXT,granted_by INTEGER NOT NULL)'),
   db.prepare('CREATE INDEX IF NOT EXISTS idx_chat_setup_expiry ON faction_chat_setup_tokens(expires_at)'),
+  // Same shared roster schema as permissions migration 0017. Keep this before
+  // the cutover marker check: already-migrated installations need this repair too.
+  db.prepare('CREATE TABLE IF NOT EXISTS faction_member_roster (faction_id INTEGER NOT NULL CHECK(faction_id>0),user_id INTEGER NOT NULL CHECK(user_id>0),user_name TEXT NOT NULL,position TEXT NOT NULL,level INTEGER NOT NULL DEFAULT 0 CHECK(level>=0),first_seen_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),updated_at INTEGER NOT NULL,PRIMARY KEY(faction_id,user_id))'),
+  db.prepare('CREATE INDEX IF NOT EXISTS idx_faction_roster_active ON faction_member_roster(faction_id,active,user_id)'),
   db.prepare('CREATE TABLE IF NOT EXISTS faction_chat_migrations (id TEXT PRIMARY KEY,completed_at INTEGER NOT NULL)')
  ]);
  if(await db.prepare('SELECT id FROM faction_chat_migrations WHERE id=?').bind(ID).first())return;

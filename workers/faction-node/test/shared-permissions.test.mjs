@@ -4,6 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {testDatabaseSql} from '../prepare-test-database.mjs';
 import {ensureSharedChatPermissions} from '../shared-permissions.js';
 import central,{TEST_ORIGIN} from '../central-test-worker.js';
+import {handleFactionNode} from '../central.js';
 
 function adapter(sql,readOnly=false){
  function statement(query,values=[]){return {bind:(...args)=>statement(query,args),first:async()=>sql.prepare(query).get(...values)||null,all:async()=>({results:sql.prepare(query).all(...values)}),run:async()=>{assert(!readOnly,'Legacy database must remain read-only');return {meta:{changes:sql.prepare(query).run(...values).changes}};},execute:()=>({meta:{changes:sql.prepare(query).run(...values).changes}})};}
@@ -48,4 +49,20 @@ test('Chat Central authentication records current acceptance only in shared prod
  const result=await response.json();assert.equal(response.status,200,JSON.stringify(result));assert(result.scopes.includes('slink.chat'));
  const accepted=f.primary.prepare('SELECT user_id,terms_version,terms_sha256 FROM war_terms_acceptances').get();assert.equal(accepted.user_id,3853023);assert.equal(accepted.terms_version,metadata.terms.version);assert.equal(accepted.terms_sha256,metadata.terms.sha256);
  assert.equal(f.legacy.prepare('SELECT COUNT(*) n FROM war_terms_acceptances').get().n,0,'Legacy acceptance store is never updated');
+});
+
+test('an already-completed cutover repairs a missing roster without seeding members or changing permissions',async t=>{
+ const f=await fixture(t);await ensureSharedChatPermissions(f.env);
+ const registration=f.primary.prepare('SELECT * FROM faction_chat_nodes').get(),grant=f.primary.prepare('SELECT * FROM faction_scope_grants').get();
+ f.primary.exec('DROP TABLE faction_member_roster');
+ const session={user_id:3853023,faction_id:46978,iat:Math.floor(Date.now()/1000)},services={session:async()=>session,hasScope:()=>false};
+ const request=()=>new Request(TEST_ORIGIN+'/api/chat/members');
+ const missing=await handleFactionNode(request(),f.env,services);assert.equal(missing.status,503);assert.equal((await missing.json()).code,'CHAT_ROSTER_SCHEMA_MISSING');
+ // Fresh isolate, existing durable transfer marker, retired legacy contents.
+ f.legacy.exec('DELETE FROM faction_chat_nodes;DELETE FROM faction_scope_grants');
+ const repaired={...f.env,PERMISSIONS_DB:adapter(f.primary)};await ensureSharedChatPermissions(repaired);await ensureSharedChatPermissions(repaired);
+ const response=await handleFactionNode(request(),repaired,services);assert.equal(response.status,200);assert.deepEqual((await response.json()).members,[],'No invented roster or presence data');
+ assert.deepEqual(f.primary.prepare('SELECT * FROM faction_chat_nodes').get(),registration);assert.deepEqual(f.primary.prepare('SELECT * FROM faction_scope_grants').get(),grant);
+ f.primary.exec("INSERT INTO faction_member_roster VALUES(46978,12,'Verified member','Member',1,1,1,1,1),(46978,13,'Inactive','Member',1,1,1,0,1),(99,14,'Other faction','Member',1,1,1,1,1)");
+ const listed=await (await handleFactionNode(request(),repaired,services)).json();assert.deepEqual(listed.members.map(member=>member.user_id),[12]);
 });
