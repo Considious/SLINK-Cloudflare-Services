@@ -10,6 +10,7 @@ import '../shared/errors.js';
  */
 
 import {handleFairFightBackup} from './fair-fight-backup.js';
+import {handleCrimeRecipes} from './crime-recipes.js';
 import {handleFactionNode} from '../faction-node/central.js';
 const WORKER_VERSION = '0.4.11-readable-errors';
 const DATA_TERMS_VERSION = '2026-11-01';
@@ -122,6 +123,12 @@ const worker = {
 
         if (url.pathname === '/api/user-backup' && request.method === 'GET') {
             return handleUserBackupRead(request, env);
+        }
+        if (url.pathname === '/api/crime-recipes' && request.method === 'POST') {
+            return handleCrimeRecipes(request,env,{session:permissionSession,hasScope,json:jsonResponse});
+        }
+        if (url.pathname === '/api/crime-recipes' && request.method === 'GET') {
+            return jsonResponse({ok:!!env.USER_BACKUPS,schema:1},env.USER_BACKUPS?200:503);
         }
 
         if (url.pathname === '/api/admin/scopes') {
