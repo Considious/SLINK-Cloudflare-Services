@@ -67,7 +67,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.11-readable-errors',
+            version: '0.4.12-officer-work',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',

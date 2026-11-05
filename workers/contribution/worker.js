@@ -2,7 +2,7 @@ import '../shared/errors.js';
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.11-readable-errors
+ * Release: 0.4.12-officer-work
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
@@ -10,9 +10,10 @@ import '../shared/errors.js';
  */
 
 import {handleFairFightBackup} from './fair-fight-backup.js';
+import {handleOfficerWork,runOfficerWork} from './officer-work/service.js';
 import {handleCrimeRecipes} from './crime-recipes.js';
 import {handleFactionNode} from '../faction-node/central.js';
-const WORKER_VERSION = '0.4.11-readable-errors';
+const WORKER_VERSION = '0.4.12-officer-work';
 const DATA_TERMS_VERSION = '2026-11-01';
 const DATA_TERMS_SHA256 =
     '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
@@ -70,6 +71,9 @@ const textEncoder = new TextEncoder();
 
 const worker = {
     async fetch(request, env, ctx) {
+        if(new URL(request.url).pathname.startsWith('/api/officer-work')){
+            return handleOfficerWork(request,env,ctx,{session:permissionSession,hasScope,loadPermissions,encryptApiKey,decryptApiKey});
+        }
         const factionNode = await handleFactionNode(request, env, {session:permissionSession,hasScope,identity:validateTornIdentity});
         if (factionNode) return factionNode;
         if (request.method === 'OPTIONS') {
@@ -258,6 +262,7 @@ const worker = {
     },
 
     async scheduled(controller, env) {
+        if(controller.cron==='* * * * *')return runOfficerWork(env,{session:permissionSession,hasScope,loadPermissions,encryptApiKey,decryptApiKey},controller.scheduledTime);
         const result = await runScheduledJobs(env, controller.scheduledTime);
         try {
             await cleanDemandState(env, controller.scheduledTime);
