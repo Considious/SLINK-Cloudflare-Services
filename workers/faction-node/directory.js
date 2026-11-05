@@ -3,6 +3,7 @@ import {ChatError,ensure,id,text,userId} from './protocol.js';
 import {membership,roomAccess,personalRoomQuota} from './access.js';
 function positionGrants(values){ensure(Array.isArray(values)&&values.length<=100&&values.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');return [...new Set(values)];}
 
+function roomLook(input){const look={};if(input.icon!==undefined){ensure(['◆','●','★','⚑','☰'].includes(input.icon),'INVALID_ROOM_ICON','Choose a supported room icon.');look.icon=input.icon;}if(input.color!==undefined){ensure(['#563571','#20516d','#2c6049','#784442','#75541e'].includes(input.color),'INVALID_ROOM_COLOR','Choose a supported room color.');look.color=input.color;}return look;}
 export class FactionDirectory extends DurableObject{
   constructor(ctx,env){super(ctx,env);this.ctx=ctx;this.env=env;this.state=null;this.rates=new Map();ctx.blockConcurrencyWhile(async()=>{await this.reload();});}
   async reload(){this.state=await this.ctx.storage.get('directory')||{leaders:[],rooms:[],audit:[],invites:[],revision:0,pending_sync:[]};this.persisted=structuredClone(this.state);}
@@ -12,7 +13,7 @@ export class FactionDirectory extends DurableObject{
     ensure(Number(actor.faction_id)===Number(this.env.SLINK_FACTION_ID),'WRONG_FACTION','This node belongs to another faction.',403);
     const owner=userId(actor.user_id),limit=personalRoomQuota(actor.scopes);
     const owned=this.state.rooms.filter(room=>room.owner_id===owner&&!room.archived);
-    const summary=()=>({used:owned.length,limit,rooms:owned.map(({room_id,name,description,members})=>({room_id,name,description,members}))});
+    const summary=()=>({used:owned.length,limit,rooms:owned.map(({room_id,name,description,icon,color,members})=>({room_id,name,description,icon,color,members}))});
     if(!input)return summary();
     const action=input.action;
     ensure(['create','update','archive','member.set','member.remove'].includes(action),'INVALID_ACTION','Unsupported personal room change.');
@@ -21,20 +22,20 @@ export class FactionDirectory extends DurableObject{
     let room;
     if(action==='create'){
       const requestId=id(input.request_id),name=text(input.name,60),description=String(input.description||'').slice(0,300);
-      const existing=this.state.rooms.find(room=>room.owner_id===owner&&room.request_id===requestId);
+      const look=roomLook(input),existing=this.state.rooms.find(room=>room.owner_id===owner&&room.request_id===requestId);
       if(existing){
-        ensure(!existing.archived&&existing.name===name&&existing.description===description,'REQUEST_REUSED','Start a new room request.',409);
+        ensure(!existing.archived&&existing.name===name&&existing.description===description&&Object.keys(look).every(key=>existing[key]===look[key]),'REQUEST_REUSED','Start a new room request.',409);
         if(this.state.pending_sync?.includes(existing.room_id))await this.sync(existing);
         return {room_id:existing.room_id,resumed:true};
       }
       ensure(owned.length<limit,'PERSONAL_ROOM_LIMIT','You have used all your personal room slots.',409);
       ensure(this.state.rooms.length<256,'NODE_ROOM_LIMIT','This node has reached its total room limit.',409);
-      room={room_id:crypto.randomUUID(),owner_id:owner,request_id:requestId,faction_id:Number(this.env.SLINK_FACTION_ID),name,description,visibility:'selected',allowed_positions:[],members:[],links:[],archived:false,revision:0};
+      room={room_id:crypto.randomUUID(),owner_id:owner,request_id:requestId,faction_id:Number(this.env.SLINK_FACTION_ID),name,description,...look,visibility:'selected',allowed_positions:[],members:[],links:[],archived:false,revision:0};
       this.state.rooms.push(room);
     }else{
       room=owned.find(item=>item.room_id===id(input.room_id));
       ensure(room,'PERSONAL_OWNER_REQUIRED','You can manage only your own personal rooms.',403);
-      if(action==='update'){if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);}
+      if(action==='update'){Object.assign(room,roomLook(input));if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);}
       if(action==='archive')room.archived=true;
       if(action.startsWith('member.')){
         const uid=userId(input.user_id);ensure(uid!==owner,'INVALID_MEMBER','The room owner cannot be changed.');
@@ -56,12 +57,12 @@ export class FactionDirectory extends DurableObject{
   async sync(room){await this.env.ROOMS.get(this.env.ROOMS.idFromName('room:'+room.room_id)).configure(this.materialize(room));if(this.state.pending_sync?.includes(room.room_id)){this.state.pending_sync=this.state.pending_sync.filter(roomId=>roomId!==room.room_id);await this.ctx.storage.put('directory',this.state);this.persisted=structuredClone(this.state);}}
   room(roomId){const room=this.state.rooms.find(room=>room.room_id===roomId);ensure(room,'ROOM_NOT_FOUND','This room does not exist.',404);return room;}
   authorize(actor,roomId){ensure(Number(actor.faction_id)===Number(this.env.SLINK_FACTION_ID),'WRONG_FACTION','This node belongs to another faction.',403);const room=this.room(roomId),access=roomAccess(this.materialize(room),actor);ensure(access.read,'ROOM_FORBIDDEN',access.reason,403);return access;}
-  async list(actor){ensure(Number(actor.faction_id)===Number(this.env.SLINK_FACTION_ID),'WRONG_FACTION','This node belongs to another faction.',403);return {personal:await this.personal(actor),leader:this.leader(actor),rooms:this.state.rooms.filter(room=>roomAccess(this.materialize(room),actor).read).map(room=>({room_id:room.room_id,name:room.name,description:room.description,visibility:room.visibility,personal:!!room.owner_id,access:roomAccess(this.materialize(room),actor),linked_factions:room.links.filter(link=>link.active).map(link=>link.remote_faction)}))};}
+  async list(actor){ensure(Number(actor.faction_id)===Number(this.env.SLINK_FACTION_ID),'WRONG_FACTION','This node belongs to another faction.',403);return {personal:await this.personal(actor),leader:this.leader(actor),rooms:this.state.rooms.filter(room=>roomAccess(this.materialize(room),actor).read).map(room=>({room_id:room.room_id,name:room.name,description:room.description,icon:room.icon,color:room.color,visibility:room.visibility,personal:!!room.owner_id,access:roomAccess(this.materialize(room),actor),linked_factions:room.links.filter(link=>link.active).map(link=>link.remote_faction)}))};}
   rateChange(actor){const now=Date.now(),key=actor.user_id,entry=this.rates.get(key)||{at:now,count:0};if(now-entry.at>=60000){entry.at=now;entry.count=0;}ensure(entry.count++<30,'ADMIN_RATE_LIMIT','Too many room changes. Wait a minute and try again.',429);this.rates.set(key,entry);}
   requireLeader(actor){ensure(this.leader(actor),'LEADER_REQUIRED','Only an assigned SLINK Chat Leader can change this setting.',403);this.rateChange(actor);}
   async mutate(actor,action,input){this.requireLeader(actor);
     if(action==='room.create'){
-      const details={name:text(input.name,60),description:typeof input.description==='string'?input.description.slice(0,300):'',visibility:['faction','selected','leaders'].includes(input.visibility)?input.visibility:'selected',allowed_positions:positionGrants(input.allowed_positions||[])},requestId=input.request_id===undefined?null:id(input.request_id),fingerprint=JSON.stringify(details);
+      const details={...roomLook(input),name:text(input.name,60),description:typeof input.description==='string'?input.description.slice(0,300):'',visibility:['faction','selected','leaders'].includes(input.visibility)?input.visibility:'selected',allowed_positions:positionGrants(input.allowed_positions||[])},requestId=input.request_id===undefined?null:id(input.request_id),fingerprint=JSON.stringify(details);
       this.state.operations=(this.state.operations||[]).filter(operation=>operation.at>Date.now()-86400000);
       const previous=requestId&&this.state.operations.find(operation=>operation.user_id===actor.user_id&&operation.request_id===requestId&&operation.action===action);
       if(previous){ensure(previous.fingerprint===fingerprint,'REQUEST_REUSED','This room request was already used with different details. Start a new room request.',409);if(this.state.pending_sync?.includes(previous.room_id))await this.sync(this.room(previous.room_id));return {room_id:previous.room_id,resumed:true};}
@@ -72,7 +73,7 @@ export class FactionDirectory extends DurableObject{
     if(action==='leader.set'){const target=userId(input.user_id);ensure(input.enabled===true||input.enabled===false,'INVALID_ACTION','Choose whether to grant or revoke Leader access.');if(!input.enabled)ensure(this.state.leaders.length>1||!this.state.leaders.includes(target),'LAST_LEADER','Assign another Leader before removing the last Leader.');if(input.enabled&&!this.state.leaders.includes(target))this.state.leaders.push(target);if(!input.enabled)this.state.leaders=this.state.leaders.filter(uid=>uid!==target);this.record(actor,action,target);for(const room of this.state.rooms)room.revision++;await this.save();for(const room of this.state.rooms)await this.sync(room);return {ok:true};}
     const room=this.room(id(input.room_id));
     ensure(!room.owner_id,'PERSONAL_OWNER_REQUIRED','This personal room is managed by its owner.',403);
-    if(action==='room.update'){if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);if(input.allowed_positions!==undefined){ensure(Array.isArray(input.allowed_positions)&&input.allowed_positions.length<=100&&input.allowed_positions.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');room.allowed_positions=[...new Set(input.allowed_positions)];}if(input.visibility!==undefined){ensure(['faction','selected','leaders'].includes(input.visibility),'INVALID_VISIBILITY','Choose a supported room access mode.');room.visibility=input.visibility;}}
+    if(action==='room.update'){Object.assign(room,roomLook(input));if(input.name!==undefined)room.name=text(input.name,60);if(input.description!==undefined)room.description=String(input.description).slice(0,300);if(input.allowed_positions!==undefined){ensure(Array.isArray(input.allowed_positions)&&input.allowed_positions.length<=100&&input.allowed_positions.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');room.allowed_positions=[...new Set(input.allowed_positions)];}if(input.visibility!==undefined){ensure(['faction','selected','leaders'].includes(input.visibility),'INVALID_VISIBILITY','Choose a supported room access mode.');room.visibility=input.visibility;}}
     else if(action==='room.archive'){room.archived=true;room.links=room.links.map(link=>({...link,active:false}));}
     else if(action==='members.set'){
       ensure(Array.isArray(input.user_ids)&&input.user_ids.length>0&&input.user_ids.length<=200&&typeof input.can_read==='boolean','INVALID_MEMBERS','Choose faction members and whether to grant room access.');

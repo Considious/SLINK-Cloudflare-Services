@@ -36,6 +36,10 @@ test('personal room claims include only the signed-in user’s active explicit t
   const response=await f.call('token',{});assert.equal(response.status,200);
   const claims=await verify(response.data.token,f.central.public,{issuer:f.issuer,aud:'node-test',kind:'chat_access',maxTtl:300});
   assert.deepEqual(claims.scopes,['slink.chat','slink.chat.personal.2']);
+  f.setSession({scopes:['admin.*']});
+  const admin=await f.call('token',{});assert.equal(admin.status,200);
+  const adminClaims=await verify(admin.data.token,f.central.public,{issuer:f.issuer,aud:'node-test',kind:'chat_access',maxTtl:300});
+  assert(adminClaims.scopes.includes('slink.chat.personal.5'));assert(!adminClaims.scopes.includes('admin.*'));
 });
 test('two simultaneous registrations can consume only one token and one node',async t=>{
   const f=await fixture(t),token=await f.setup(),other=await keys();
@@ -81,7 +85,7 @@ test('admin wildcard cannot bypass the faction license or inject Chat Leader aut
   f.setSession({user_id:2,scopes:['admin.*','slink.chat.leader'],roles:['admin','leader']});
   const result=await f.call('token',{});assert.equal(result.status,200);
   const claims=await verify(result.data.token,f.central.public,{aud:'node-test',issuer:f.issuer,kind:'chat_access'});
-  assert.deepEqual(claims.roles,[]);assert.deepEqual(claims.scopes,['slink.chat']);
+  assert.deepEqual(claims.roles,[]);assert.deepEqual(claims.scopes,['slink.chat','slink.chat.personal.5']);
   f.db.sql.exec('DELETE FROM faction_scope_grants');
   assert.equal((await f.call('token',{})).status,403);
   assert.equal((await f.call('setup-token',{faction_id:10,leader_id:1,endpoint:'https://other.example.test'})).status,403);

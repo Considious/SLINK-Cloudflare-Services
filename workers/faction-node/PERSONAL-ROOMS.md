@@ -4,8 +4,10 @@ Apply permissions migration `0024-personal-room-tiers.sql` to the shared
 `slink-permissions` database, and deploy the updated Chat Central and
 Faction Node. Assign one explicit user grant, `slink.chat.personal.1`
 through `slink.chat.personal.5`, in the permissions manager.
-The highest active tier applies; grants do not stack. Neither wildcard
-nor faction-level grants unlock this feature.
+The highest active tier applies; grants do not stack. A verified
+`admin.*` grant gets the five-room personal quota without changing
+Faction Chat Leader membership. Other wildcards and faction-level grants
+do not unlock personal rooms.
 
 Personal rooms are hosted on the user's current licensed faction node
 and limited to invited members of that faction. The quota is enforced on
