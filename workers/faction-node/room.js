@@ -12,6 +12,8 @@ export class ChatRoom extends DurableObject{
     this.sql.exec(`CREATE TABLE IF NOT EXISTS audit (seq INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,action TEXT NOT NULL,target TEXT,created_at INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS budgets (user_id INTEGER NOT NULL,bucket TEXT NOT NULL,window INTEGER NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,bucket))`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS messages_retention ON messages(created_at)`);
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS messages_edited ON messages(edited_at) WHERE edited_at IS NOT NULL`);
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS messages_deleted ON messages(deleted_at) WHERE deleted_at IS NOT NULL`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS inbox_retention ON inbox(created_at)`);
     this.config=null;
   }
@@ -42,6 +44,19 @@ export class ChatRoom extends DurableObject{
     if(u.pathname.endsWith('/sync')&&request.method==='GET'){
       const access=this.valid(actor);ensure(access.read,'ROOM_FORBIDDEN',access.reason,403);this.budget(actor.user_id,'https_reads',60000,30);
       const after=Number(u.searchParams.get('after')||0),changed=Number(u.searchParams.get('changed')||0),stamp=Date.now();ensure(Number.isSafeInteger(after)&&after>=0&&Number.isSafeInteger(changed)&&changed>=0,'INVALID_CURSOR','Reconnect to reset this room cursor.');
+      if(u.searchParams.get('delta')==='1'){
+        if(!changed){
+          const history=this.history(actor);
+          return json({protocol:PROTOCOL,type:'welcome',access,...history,presence:this.presence(),after:history.messages.at(-1)?.seq||0,changed:stamp,more:false});
+        }
+        const delta=this.all('SELECT * FROM messages WHERE seq>? ORDER BY seq LIMIT 201',after);
+        const updates=this.all('SELECT * FROM messages WHERE (edited_at>=? OR deleted_at>=?) AND seq<=? ORDER BY seq LIMIT 301',changed,changed,after);
+        ensure(updates.length<=300,'CHAT_RESYNC_REQUIRED','Too many messages changed at once. Press Reconnect to refresh this room.',409);
+        const batch=delta.slice(0,200),more=delta.length>200;
+        const last=this.all('SELECT seq FROM reads WHERE user_id=?',actor.user_id)[0]?.seq||0;
+        const unread=this.all('SELECT COUNT(*) AS count FROM messages WHERE seq>? AND user_id<>? AND deleted_at IS NULL',last,actor.user_id)[0].count;
+        return json({protocol:PROTOCOL,type:'welcome',access,unread,messages:[...batch,...updates].map(row=>this.present(row)),presence:this.presence(),after:batch.at(-1)?.seq||after,changed:more?changed:stamp,more});
+      }
       const history=this.history(actor),delta=this.all('SELECT * FROM messages WHERE seq>? ORDER BY seq LIMIT 201',after),updates=changed?this.all('SELECT * FROM messages WHERE edited_at>=? OR deleted_at>=? ORDER BY seq LIMIT 301',changed,changed):[];
       ensure(updates.length<=300,'CHAT_RESYNC_REQUIRED','Too many messages changed at once. Press Reconnect to refresh this room.',409);
       const more=delta.length>200,batch=delta.slice(0,200),messages=[...new Map([...history.messages,...batch.map(row=>this.present(row)),...updates.map(row=>this.present(row))].map(message=>[message.message_id,message])).values()];
