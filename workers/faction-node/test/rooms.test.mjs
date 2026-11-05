@@ -12,11 +12,29 @@ test('real Worker and SQLite rooms enforce Leader changes on existing WebSockets
   const bundle=await build({entryPoints:[new URL('../worker.js',import.meta.url).pathname.replace(/^\/([A-Z]:)/,'$1')],bundle:true,write:false,format:'esm',platform:'browser',external:['cloudflare:workers']});
   const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-06',durableObjects:{DIRECTORY:{className:'FactionDirectory',useSQLite:true},ROOMS:{className:'ChatRoom',useSQLite:true}},bindings:{SLINK_NODE_ID:'node-test',SLINK_FACTION_ID:'10',SLINK_CENTRAL_URL:issuer,SLINK_PUBLIC_VERIFY_KEY:JSON.stringify(publicKey),NODE_PRIVATE_KEY:JSON.stringify(privateKey),NODE_CERTIFICATE:cert}});
   t.after(()=>mf.dispose());
-  const token=async uid=>sign({iss:issuer,aud:'node-test',kind:'chat_access',protocol:1,iat:now,exp:now+300,user_id:uid,user_name:'Test '+uid,faction_id:10,scopes:['slink.chat']},privateKey);
+  const token=async (uid,scopes=[])=>sign({iss:issuer,aud:'node-test',kind:'chat_access',protocol:1,iat:now,exp:now+300,user_id:uid,user_name:'Test '+uid,faction_id:10,scopes:['slink.chat',...scopes]},privateKey);
   const leader=await token(1),member=await token(2);
   async function request(path,auth,payload){const response=await mf.dispatchFetch(origin+path,{method:payload?'POST':'GET',headers:{Authorization:'Bearer '+auth,'Content-Type':'application/json'},...(payload?{body:JSON.stringify(payload)}:{})});return {status:response.status,data:await response.json()};}
   const admin=async payload=>{const result=await request('/api/admin',leader,payload);assert.equal(result.status,200,JSON.stringify(result.data));return result.data;};
   assert.equal((await request('/api/admin',member)).status,403);
+  const personal=async (auth,input)=>request('/api/personal-rooms',auth,input);
+  const first={action:'create',request_id:'personal-one',name:'Private coordination'};
+  assert.equal((await personal(member,first)).status,403);
+  assert.equal((await personal(await token(2,['admin.*','slink.chat.personal.*']),first)).status,403);
+  const paid=await token(2,['slink.chat.personal.1']);
+  const made=await personal(paid,first);assert.equal(made.status,200,JSON.stringify(made.data));const personalId=made.data.room_id;
+  assert.equal((await personal(paid,first)).data.room_id,personalId);
+  assert.equal((await personal(paid,{...first,request_id:'personal-two'})).status,409);
+  assert.equal((await personal(await token(3,['slink.chat.personal.5']),{action:'update',room_id:personalId,name:'Not mine'})).status,403);
+  assert.equal((await request('/api/admin',paid)).status,403);
+  assert.equal((await request('/api/admin',leader,{action:'room.archive',room_id:personalId})).status,403);
+  assert.equal((await request('/api/rooms/'+personalId+'/history',leader)).status,403);
+  assert.equal((await personal(paid,{action:'member.set',room_id:personalId,user_id:3,can_read:true,can_speak:true})).status,200);
+  assert.equal((await request('/api/rooms/'+personalId+'/history',await token(3))).status,200);
+  const quota=(await request('/api/rooms',await token(2,['slink.chat.personal.1','slink.chat.personal.5']))).data.personal;
+  assert.equal(quota.used,1);assert.equal(quota.limit,5);
+  assert.equal((await personal(member,{action:'archive',room_id:personalId})).status,200);
+  assert.equal((await request('/api/rooms',paid)).data.personal.used,0);
   // Real Worker/SQLite HTTP path for WebViews that refuse WebSocket creation.
   const sync=await request('/api/rooms/general/sync',member);assert.equal(sync.status,200);assert.equal(sync.data.access.speak,true);
   const event={type:'send',client_id:'https-once',command_id:'https-once',content:{type:'text',text:'HTTPS member message'}};

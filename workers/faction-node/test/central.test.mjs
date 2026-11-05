@@ -10,6 +10,7 @@ function database(){
   const sql=new DatabaseSync(':memory:');
   sql.exec(`CREATE TABLE permission_scope_catalog(scope TEXT PRIMARY KEY,category TEXT,title TEXT,description TEXT,assignable INTEGER,default_hours INTEGER,created_at INTEGER,updated_at INTEGER);
   CREATE TABLE faction_scope_grants(faction_id INTEGER,scope TEXT,status TEXT,starts_at INTEGER,expires_at INTEGER);
+  CREATE TABLE user_scope_grants(user_id INTEGER,scope TEXT,status TEXT,starts_at INTEGER,expires_at INTEGER);
   INSERT INTO faction_scope_grants VALUES(10,'slink.chat','active',0,NULL);`);
   function statement(query,values=[]){return {bind:(...args)=>statement(query,args),first:async()=>sql.prepare(query).get(...values)||null,all:async()=>({results:sql.prepare(query).all(...values)}),run:async()=>({meta:{changes:sql.prepare(query).run(...values).changes}}),execute:()=>({meta:{changes:sql.prepare(query).run(...values).changes}})};}
   return {sql,prepare:statement,async batch(statements){sql.exec('BEGIN');try{const results=statements.map(s=>s.execute());sql.exec('COMMIT');return results;}catch(e){sql.exec('ROLLBACK');throw e;}}};
@@ -28,6 +29,13 @@ test('registration binds identity, retries safely and cannot be replaced with a 
   const retry=await f.call('register',await f.registration(token));assert.equal(retry.status,200);assert.equal(retry.data.resumed,true);
   assert.equal((await f.call('register',await f.registration(token,'node-test',await keys()))).status,409);
   assert.equal(f.db.sql.prepare('SELECT COUNT(*) AS n FROM faction_chat_nodes').get().n,1);
+});
+test('personal room claims include only the signed-in user’s active explicit tiers',async t=>{
+  const f=await fixture(t),setup=await f.setup();assert.equal((await f.call('register',await f.registration(setup))).status,200);
+  f.db.sql.exec("INSERT INTO user_scope_grants VALUES (1,'slink.chat.personal.2','active',0,NULL),(1,'slink.chat.personal.5','active',0,1),(1,'slink.chat.personal.4','revoked',0,NULL),(1,'slink.chat.personal.*','active',0,NULL),(2,'slink.chat.personal.3','active',0,NULL)");
+  const response=await f.call('token',{});assert.equal(response.status,200);
+  const claims=await verify(response.data.token,f.central.public,{issuer:f.issuer,aud:'node-test',kind:'chat_access',maxTtl:300});
+  assert.deepEqual(claims.scopes,['slink.chat','slink.chat.personal.2']);
 });
 test('two simultaneous registrations can consume only one token and one node',async t=>{
   const f=await fixture(t),token=await f.setup(),other=await keys();

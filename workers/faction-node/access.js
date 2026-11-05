@@ -1,10 +1,15 @@
 import {ensure,userId} from './protocol.js';
 
+export function personalRoomQuota(scopes){
+  return (Array.isArray(scopes)?scopes:[]).reduce((cap,scope)=>Math.max(cap,Number(/^slink\.chat\.personal\.([1-5])$/.exec(scope)?.[1])||0),0);
+}
+
 // A room's access state is evaluated on the server for every operation, not only at connect.
 export function roomAccess(room,actor,now=Date.now()){
   const uid=Number(actor.user_id),sameFaction=Number(actor.faction_id)===Number(room.faction_id);
   if(!sameFaction||room.archived)return {read:false,speak:false,moderate:false,reason:'This room is not available to your faction.'};
-  const leader=(room.leaders||[]).includes(uid);
+  if(room.owner_id&&Number(room.owner_id)===uid)return {read:true,speak:true,moderate:true,leader:false};
+  const leader=!room.owner_id&&(room.leaders||[]).includes(uid);
   if(leader)return {read:true,speak:true,moderate:true,leader:true};
   const entry=(room.members||[]).find(member=>Number(member.user_id)===uid);
   const restricted=room.visibility!=='faction';

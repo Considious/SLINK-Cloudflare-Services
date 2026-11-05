@@ -4,7 +4,7 @@ export {ChatRoom} from './room.js';
 
 const parsed=new Map();
 function config(env,name){const value=env[name];if(typeof value==='object')return value;if(!parsed.has(value))parsed.set(value,JSON.parse(value||'null'));return parsed.get(value);}
-function directory(env){const stub=env.DIRECTORY.get(env.DIRECTORY.idFromName('faction:'+env.SLINK_FACTION_ID));return Object.fromEntries(['bootstrap','authorize','list','admin','mutate','addInvitation','link','consumeInvitation','revoke','revokeInternal','findLink','moderate'].map(method=>[method,async(...args)=>{const result=await stub.invoke(method,args);if(!result.ok)throw new ChatError(result.error.code,result.error.message,result.error.status);return result.value;}]));}
+function directory(env){const stub=env.DIRECTORY.get(env.DIRECTORY.idFromName('faction:'+env.SLINK_FACTION_ID));return Object.fromEntries(['bootstrap','authorize','list','admin','mutate','addInvitation','link','consumeInvitation','revoke','revokeInternal','findLink','moderate','personal'].map(method=>[method,async(...args)=>{const result=await stub.invoke(method,args);if(!result.ok)throw new ChatError(result.error.code,result.error.message,result.error.status);return result.value;}]));}
 function room(env,roomId){return env.ROOMS.get(env.ROOMS.idFromName('room:'+id(roomId)));}
 function originAllowed(request,env){const origin=request.headers.get('Origin');if(!origin)return true;/* Extension dashboards have their own origin; protected routes still require signed tickets. */if(/^chrome-extension:\/\/[a-p]{32}$/.test(origin))return true;return String(env.ALLOWED_ORIGINS||'https://www.torn.com').split(',').map(x=>x.trim()).includes(origin);}
 async function certificate(env){return verify(env.NODE_CERTIFICATE,config(env,'SLINK_PUBLIC_VERIFY_KEY'),{issuer:env.SLINK_CENTRAL_URL,aud:'slink-node-network',kind:'node_certificate',maxTtl:366*86400});}
@@ -33,6 +33,7 @@ async function handle(request,env){
   }
   const who=await actor(request,env),registry=directory(env);
   if(u.pathname==='/api/rooms'&&request.method==='GET')return json(await registry.list(who));
+  if(u.pathname==='/api/personal-rooms'&&request.method==='POST')return json(await registry.personal(who,await body(request)));
   if(u.pathname==='/api/admin'&&request.method==='GET')return json(await registry.admin(who));
   if(u.pathname==='/api/admin/diagnostics'&&request.method==='GET'){const state=await registry.admin(who),rooms=await Promise.all(state.rooms.map(async item=>({room_id:item.room_id,name:item.name,archived:item.archived,...await room(env,item.room_id).diagnostics()})));return json({version:VERSION,protocol:PROTOCOL,node_id:env.SLINK_NODE_ID,rooms});}
   if(u.pathname==='/api/admin'&&request.method==='POST'){const input=await body(request);ensure(['room.create','room.update','room.archive','member.set','members.set','member.remove','leader.set'].includes(input.action),'INVALID_ACTION','This administration action is not supported.');return json(await registry.mutate(who,input.action,input));}
