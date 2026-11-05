@@ -28,6 +28,11 @@ test('real Worker and SQLite rooms enforce Leader changes on existing WebSockets
   assert.equal((await personal(paid,{action:'update',room_id:personalId,color:'#2c6049'})).status,200);
   const appearance=(await request('/api/rooms',paid)).data.rooms.find(room=>room.room_id===personalId);
   assert.equal(appearance.icon,'★');assert.equal(appearance.color,'#2c6049');
+  assert.equal((await personal(paid,{action:'update',room_id:personalId,icon:'halloween_pumpkin',color:'#ad1457'})).status,200);
+  const nativeAppearance=(await request('/api/rooms',paid)).data.rooms.find(room=>room.room_id===personalId);
+  assert.equal(nativeAppearance.icon,'halloween_pumpkin');assert.equal(nativeAppearance.color,'#ad1457');
+  assert.equal((await personal(paid,{action:'update',room_id:personalId,icon:'<svg onload=alert(1)>'})).status,400);
+  assert.equal((await personal(await token(3,['slink.chat.personal.5']),{action:'update',room_id:personalId,icon:'assault',color:'#b22222'})).status,403);
   assert.equal((await personal(paid,{...first,request_id:'personal-two'})).status,409);
   assert.equal((await personal(await token(3,['slink.chat.personal.5']),{action:'update',room_id:personalId,name:'Not mine'})).status,403);
   assert.equal((await request('/api/admin',paid)).status,403);

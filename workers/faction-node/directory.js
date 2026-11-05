@@ -3,7 +3,7 @@ import {ChatError,ensure,id,text,userId} from './protocol.js';
 import {membership,roomAccess,personalRoomQuota} from './access.js';
 function positionGrants(values){ensure(Array.isArray(values)&&values.length<=100&&values.every(value=>typeof value==='string'&&value.trim()===value&&value.length>0&&value.length<=100),'INVALID_POSITIONS','Choose valid faction roles.');return [...new Set(values)];}
 
-function roomLook(input){const look={};if(input.icon!==undefined){ensure(['◆','●','★','⚑','☰'].includes(input.icon),'INVALID_ROOM_ICON','Choose a supported room icon.');look.icon=input.icon;}if(input.color!==undefined){ensure(['#563571','#20516d','#2c6049','#784442','#75541e'].includes(input.color),'INVALID_ROOM_COLOR','Choose a supported room color.');look.color=input.color;}return look;}
+function roomLook(input){const look={};if(input.icon!==undefined){ensure(typeof input.icon==='string'&&(input.icon===''||/^[a-z][a-z0-9_]{0,39}$/.test(input.icon)||['◆','●','★','⚑','☰'].includes(input.icon)),'INVALID_ROOM_ICON','Choose a supported room icon.');look.icon=input.icon;}if(input.color!==undefined){ensure(typeof input.color==='string'&&(input.color===''||/^#[0-9a-f]{6}$/i.test(input.color)),'INVALID_ROOM_COLOR','Choose a supported room color.');look.color=input.color;}return look;}
 export class FactionDirectory extends DurableObject{
   constructor(ctx,env){super(ctx,env);this.ctx=ctx;this.env=env;this.state=null;this.rates=new Map();ctx.blockConcurrencyWhile(async()=>{await this.reload();});}
   async reload(){this.state=await this.ctx.storage.get('directory')||{leaders:[],rooms:[],audit:[],invites:[],revision:0,pending_sync:[]};this.persisted=structuredClone(this.state);}
