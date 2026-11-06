@@ -92,3 +92,9 @@
 .theme-candy-cartel[data-layout=pda] .candy-prop{width:78px;height:97px}
 .theme-candy-cartel[data-layout=pda] .mock-alert[data-candy-prop] .action-row{margin-top:18px}
 .theme-candy-cartel[data-layout=pda] .section-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+/* Let copy and controls determine card height; artwork must never reserve an empty row. */
+.theme-candy-cartel .mock-alert{padding:14px 14px;margin-top:14px}
+.theme-candy-cartel .mock-alert[data-candy-prop],.theme-candy-cartel[data-layout=pda] .mock-alert[data-candy-prop]{min-height:0;grid-template-columns:minmax(0,1fr) 64px;column-gap:10px;row-gap:4px}
+.theme-candy-cartel .candy-prop,.theme-candy-cartel[data-layout=pda] .candy-prop{width:64px;height:64px;grid-row:1/3}
+.theme-candy-cartel .mock-alert[data-candy-prop] .action-row,.theme-candy-cartel[data-layout=pda] .mock-alert[data-candy-prop] .action-row{margin-top:4px;padding-top:0;min-height:0;align-items:center}
+.theme-candy-cartel .candy-prop-emblem{width:20px;height:20px;font-size:12px}
