@@ -7,11 +7,7 @@ export function decorateNaughtyPreview(root,theme,screen){
  for(const old of root.querySelectorAll('[data-naughty-flavor],[data-naughty-samples],[data-naughty-art]'))old.remove();
  if(!theme?.testingOnly||theme.id!=='slink-naughty-list')return;
  root.classList.add('theme-naughty-list');root.dataset.naughtyPage=pages[screen]||'dashboard';
- // Decorative artwork gets its own space; never paint over alert text or actions.
- const scene=document.createElement('aside');scene.dataset.naughtyArt='';scene.className='naughty-scene';
- const controls=document.createElement('div');controls.className='naughty-scene-controls';controls.innerHTML='<p class="naughty-scene-heading">THE NAUGHTY LIST PAYS…</p><p class="muted">24-hour timer: not started</p><div class="action-row"><button type="button" class="slink-btn--naughty-primary" data-sample>Start 24h timer</button></div><label><input type="checkbox"> Enable Stack mode</label>';
- const coal=document.createElement('img');coal.src=theme.assets.coalScene;coal.alt='Good people get coal: crimson graffiti, coal gifts and a crowned-skull ornament';coal.className='naughty-coal-art';coal.width=1000;coal.height=487;coal.decoding='async';scene.append(controls,coal);
- const anchor=root.querySelector('.mock-metrics')||root.querySelector('.panel-heading');anchor?.after(scene);
+ // Wall graffiti is part of the wallpaper, never an inserted content section.
  const mission=root.querySelector('.mock-alert.warning');if(mission){const note=document.createElement('img');note.dataset.naughtyArt='';note.className='naughty-note-art';note.src=theme.assets.blacklistNote;note.alt='Decorative Naughty List with Candy, Babies and Everyone Else checked';note.width=360;note.height=400;note.decoding='async';mission.classList.add('has-naughty-note');cleanup.push(()=>mission.classList.remove('has-naughty-note'));mission.append(note);}
  const samples=document.createElement('details');samples.dataset.naughtySamples='';samples.className='naughty-components';
  samples.innerHTML='<summary>Theme component samples</summary><div class="naughty-component-grid">'+

@@ -14,7 +14,7 @@ The `SLINK-Website` Theme Lab includes an identical package under `site/themes/n
 - `prepare-assets.mjs`: mechanical slicing/optimization of the generated source PNGs. It needs the host's Sharp module path in `SLINK_SHARP_MODULE`, followed by the two source image paths. No external image API or key is needed to reuse the finished assets.
 - `ASSET-PROMPTS.md`: asset provenance and complete prompts used with the built-in image tool.
 
-Total raster package: 837,908 bytes including the optional atlas. The visible coal/graffiti vignette and crowned-skull blacklist note are allocated their own layout space, not hidden under cards or painted over text. `prepare-atmosphere.mjs` optimizes those new assets; their prompts are recorded in ASSET-PROMPTS.md.
+Revision 3 adds a 593,248-byte portrait wall. The previous square backdrop and coal vignette remain as unused source alternatives, not loaded by the preview. The blacklist note stays inside its alert. `prepare-wall.mjs` and `prepare-atmosphere.mjs` format-optimize the generated assets; prompts are recorded in ASSET-PROMPTS.md.
 
 No animated snow, live poller, external font or broad blur/filter effects. The webpage reuses the images across components.
 
@@ -31,3 +31,7 @@ Website main is permitted for the lab. Extension main, PDA main and the shared p
 In the lab: inspect Alerts and Market; visit Combat → War, Targets, Mugging; Quality of Life → Racing and Chat; Access → Theme component samples. Resize the panel and review tooltip/table/badge/button states. Uncheck unfinished themes or choose an existing theme to confirm the skin cleans up.
 
 Before release: user visual approval against the supplied concept, optional further artwork refinement, and an explicit decision to register/adapt this package into the live app theme renderers. No claim of live extension/PDA testing is made at this stage.
+# Background revision 3
+
+The coal slogan is painted directly onto a portrait hideout wall, not inserted as a content panel. Removed the added timer/Stack sample block. The wallpaper scales proportionally to the dashboard width and repeats vertically for long pages: it never stretches lettering or stops at the end of a square image. Bright crimson/emerald light, gold skulls/chains and a red syringe restore the original reference's deliberately excessive character. Alert text remains on dark surfaces; all decoration is non-interactive. No extra content height is reserved for background artwork.
+
