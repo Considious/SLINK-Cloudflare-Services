@@ -1,0 +1,17 @@
+# Naughty List asset prompts
+
+Built-in image-generation tool, reference-guided new assets. Reference: the user's approved Naughty List dashboard concept supplied in this chat. No third-party source code or external artwork was copied.
+
+The output is artwork only: all labels, buttons, controls and data are HTML/CSS. The nine-patch pieces are mechanically sliced from the generated alpha frame without visual redesign. WebP output preserves alpha. No source PNGs need to be downloaded by the page.
+
+## Frame
+Use case: style-transfer. Asset type: production UI nine-slice frame texture, not a mockup. Input image 1 is STYLE REFERENCE ONLY: SLINK Naughty List Christmas UI. Create ONE square transparent PNG frame asset, 1024 by 1024 preferred, front facing flat orthographic. A single straight-sided rounded rectangular perimeter with weathered black steel, polished thin silver beveled edges, deep crimson reflected edge light, subtle evergreen reflected lower edge, realistic small snow caps on top edge and upper corners, short restrained icicles on lower corners, tiny embedded red Christmas bulbs spaced along outer edge. Match the rich gritty photoreal premium outlaw Christmas style in the reference, not flat vector. CRITICAL: this is intended for CSS border-image nine-slice. Outer ornamentation all confined to outer 15% of the square, completely TRANSPARENT empty center covering at least inner 70% of width and height. Keep corner details within corner 15% squares; edge middles uniform and repeatable/stretchable, straight not bowed. Frame reaches near canvas perimeter with modest transparent gutter, no shadow/background inside or outside. No chains crossing center, no presents, no logo, NO TEXT, no icons, no UI controls, no grid lines. Alpha transparency is required, not a baked checkerboard. Deliver only this isolated frame.
+
+## Background
+Use case: style-transfer. Asset type: reusable website/dashboard background artwork. Image 1 is the visual reference for SLINK Naughty List, use its premium gritty Christmas aesthetic. Generate a square 1024x1024 dark black-ice and charcoal cracked-metal background, flat front-facing decorative UI backdrop with NO UI. Black steel, subtle frost, dark silver and bronze chains along outer sides, evergreen sprigs and tiny red Christmas lights along the outside perimeter, small black wrapped gifts with crimson ribbon and a restrained crowned-skull gold bauble clustered only in lower-right corner. Sparse snow rests on metal at outer corners. Near upper-right edge a small rough black plaque with crimson hand-painted words exactly 'NAUGHTY LIST'. CENTER 70% must remain almost black, low contrast and uncluttered, intended to sit behind translucent real interface panels and text. Avoid large objects, clutter, chains, lettering or bright lights across the central reading area. Reference's detailed realistic steel/frost/chain material quality, not cartoons, not generic clipart. No Santa character, no buttons, no fake controls, no interface, no layout, no data, no other text, no watermark. Full opaque background, not transparency.
+
+## Final files
+- assets/frames/naughty_frame_atlas.webp and the nine naughty_frame_{tl,top,tr,left,center,right,bl,bottom,br}.webp pieces.
+- assets/backgrounds/naughty_bg_main.webp.
+- assets/icons/naughty-brand.svg is a small code-native SL icon, not an extracted logo.
+- assets/overlays/naughty_overlay_frost.svg is an optional code-native frost accent. The preview uses the raster top edge for its frost trim.
