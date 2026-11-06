@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "2026-10-23.2",
-  "updatedAt": "2026-10-23T00:00:00Z",
+  "revision": "christmas2026-release-1",
+  "updatedAt": "2026-11-06T06:53:55.530Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -328,6 +328,55 @@
         "--slink-glow-right": "rgba(220, 199, 168, .28)",
         "--slink-metal": "#e7ddd0",
         "--slink-metal-dark": "#65595a"
+      }
+    },
+    {
+      "id": "slink-naughty-list",
+      "label": "Naughty List · Christmas 2026",
+      "description": "Santa’s Ledger of Illicit Naughty Knowledge. Black ice, gold chains and crimson/emerald Christmas lighting.",
+      "scope": "slink.theme.christmas2026",
+      "ornament": "none",
+      "swatch": [
+        "#080b0e",
+        "#f21d35",
+        "#11bd56"
+      ],
+      "tokens": {
+        "--slink-bg": "#080b0e",
+        "--slink-bg-raised": "#151b20",
+        "--slink-bg-control": "#1b252b",
+        "--slink-surface": "#10171c",
+        "--slink-card": "#080e12",
+        "--slink-control": "#1b252b",
+        "--slink-border": "#83949f",
+        "--slink-border-soft": "rgba(189,201,210,.3)",
+        "--slink-text": "#f4f6f7",
+        "--slink-muted": "#aab8c2",
+        "--slink-accent": "#f21d35",
+        "--slink-accent-alt": "#d9f5ff",
+        "--slink-ready": "#67ff6f",
+        "--slink-warning": "#ffe2a7",
+        "--slink-error": "#ffb6b9",
+        "--slink-danger-bg": "#54101d",
+        "--slink-link": "#bce9ff",
+        "--slink-shadow": "rgba(0,0,0,.5)",
+        "--slink-page-bg": "linear-gradient(135deg,#07090c,#141b21 55%,#080b0e)",
+        "--slink-topbar-bg": "linear-gradient(115deg,rgba(6,9,12,.96),rgba(31,37,41,.9))",
+        "--slink-panel-bg": "rgba(8,14,18,.94)",
+        "--slink-button-bg": "linear-gradient(165deg,#303b42,#11181d 45%,#06090d)",
+        "--slink-selected-bg": "linear-gradient(110deg,#701525,#a0182e 60%,#213d32)",
+        "--slink-mark-bg": "linear-gradient(145deg,#182126,#07090b)",
+        "--slink-glow-left": "rgba(168,21,45,.16)",
+        "--slink-glow-right": "rgba(32,97,71,.12)",
+        "--slink-metal": "#bdc9d2",
+        "--slink-metal-dark": "#343f47"
+      },
+      "assets": {
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-background.webp",
+        "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-brand.svg",
+        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-brand.svg",
+        "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-frame.webp",
+        "packaged": true
       }
     }
   ]

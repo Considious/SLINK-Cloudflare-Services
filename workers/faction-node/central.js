@@ -55,8 +55,8 @@ export async function handleFactionNode(request,env,services){const path=new URL
       const now=Math.floor(Date.now()/1000);ensure(now-session.iat<ACCESS_TTL,'MEMBERSHIP_REFRESH_REQUIRED','Refresh SLINK Access to verify your current faction before reconnecting to chat.',428);
       const node=await db.prepare("SELECT * FROM faction_chat_nodes WHERE faction_id=? AND status='active'").bind(factionId).first();ensure(node,'NODE_NOT_REGISTERED','Your faction has not connected its chat node yet.',404);
       const exp=Math.min(session.iat+ACCESS_TTL,session.exp);
-      const grants=await db.prepare("SELECT scope FROM user_scope_grants WHERE user_id=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND scope IN ('slink.chat.personal.1','slink.chat.personal.2','slink.chat.personal.3','slink.chat.personal.4','slink.chat.personal.5')").bind(session.user_id,now*1000,now*1000).all();
-      const scopes=[...new Set(['slink.chat',...(grants.results||[]).map(row=>row.scope),...(session.scopes?.includes('admin.*')?['slink.chat.personal.5']:[])])];
+      const grants=await db.prepare("SELECT scope FROM user_scope_grants WHERE user_id=? AND status='active' AND starts_at<=? AND (expires_at IS NULL OR expires_at>?) AND scope IN ('slink.chat.personal.1','slink.chat.personal.2','slink.chat.personal.3','slink.chat.personal.4','slink.chat.personal.5','slink.theme.christmas2026','slink.theme.*','slink.*','admin.*','*')").bind(session.user_id,now*1000,now*1000).all();
+      const scopes=[...new Set(['slink.chat',...(grants.results||[]).map(row=>row.scope),...(session.scopes?.includes('admin.*')?['slink.chat.personal.5','admin.*']:[])])];
       const claims={iss:centralUrl(env),aud:node.node_id,kind:'chat_access',protocol:PROTOCOL,iat:now,exp,user_id:session.user_id,user_name:session.user_name||'Player '+session.user_id,faction_id:factionId,scopes,roles:[],faction_position:String(session.faction_position||''),jti:crypto.randomUUID()};return json({ok:true,token:await sign(claims,signingKey(env)),expires_at:exp*1000,endpoint:node.endpoint,node_id:node.node_id,user_id:session.user_id,user_name:claims.user_name,faction_id:factionId},200,cors);
     }
     if(path==='/api/chat/members'&&request.method==='POST'){
@@ -77,3 +77,4 @@ export async function handleFactionNode(request,env,services){const path=new URL
     throw new ChatError('NOT_FOUND','This faction chat endpoint does not exist.',404);
   }catch(e){const response=errorResponse(e),headers=new Headers(response.headers);for(const [key,value]of Object.entries(cors))headers.set(key,value);return new Response(response.body,{status:response.status,headers});}
 }
+
