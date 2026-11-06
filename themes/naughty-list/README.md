@@ -47,3 +47,7 @@ Candy-cane/chain artwork is now magnified uniformly inside a narrow, clipped sid
 
 Both module tabs and the four bottom navigation buttons now use warm black/gold enamel instead of blue steel, with generated transparent gold-chain nine-slice borders. Crimson and emerald glows alternate, and the selected tab has a brighter interior/exterior light. Chain borders never intercept input; keyboard focus remains visible. Existing alert frames, metric gradients, candy-cane rails and other themes are unchanged.
 
+# Alert prop collection
+
+The Alerts preview now includes 14 decorated alert types: medical (blue syringe), drugs (green), boosters (red), energy/nerve refills (green lightning/red flame), casino chips, addiction, 100 city items, flight, racing, education, stocks, organized crime and market watches. Props sit beside titles/descriptions; action rows span the whole card beneath them. Twelve transparent 360px WebP assets total about 507KB; the two refill syringes reuse existing images with SVG emblems. No animation, polling, account access, live notifications or game logic. Sample cards and decoration are removed when switching themes; repeated navigation cannot duplicate them. Extension/PDA and the live theme catalogue remain unchanged.
+

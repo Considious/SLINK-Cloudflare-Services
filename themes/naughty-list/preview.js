@@ -1,4 +1,5 @@
 import {NaughtyFrame} from './frame.js';
+import {decorateAlertProps} from './alert-props.js';
 const pages={War:'war',Targets:'targets',Mugging:'mugging',Leveling:'combat',Market:'market',Racing:'racing',Chat:'chat'};
 let cleanup=[];
 // Original theme-local SVGs, not emoji: consistent silver/gold finish on every platform.
@@ -10,6 +11,7 @@ export function decorateNaughtyPreview(root,theme,screen){
  for(const old of root.querySelectorAll('[data-naughty-flavor],[data-naughty-samples],[data-naughty-art]'))old.remove();
  if(!theme?.testingOnly||theme.id!=='slink-naughty-list')return;
  root.classList.add('theme-naughty-list');root.dataset.naughtyPage=pages[screen]||'dashboard';
+ cleanup.push(decorateAlertProps(root,theme,screen));
  for(const [selector,text]of [['.mock-header strong',theme.branding.title],['.mock-header small',theme.branding.subtitle]]){const el=root.querySelector(selector);if(el){const old=el.textContent;el.textContent=text;cleanup.push(()=>el.textContent=old);}}
  for(const side of ['left','right']){const rail=document.createElement('div');rail.dataset.naughtyArt='';rail.className='naughty-side-rail naughty-side-rail--'+side;rail.setAttribute('aria-hidden','true');rail.style.backgroundImage='url("'+theme.assets.sideRail+'")';root.append(rail);}
  for(const button of root.querySelectorAll('button')){const nav=button.querySelector('.nav-icon');const key=nav?({combat:'combat',efficiency:'efficiency',qol:'qol',access:'access'}[button.dataset.section]):({Refresh:'refresh',Open:'open',Dismiss:'dismiss',Alerts:'bell',Market:'market',Crimes:'crimes',Merits:'merits',Rooms:'chat',Retry:'retry',Details:'details'}[button.textContent.trim()]);if(!key)continue;if(nav){const old=nav.innerHTML;nav.innerHTML=icon(key);cleanup.push(()=>nav.innerHTML=old);}else{const span=document.createElement('span');span.className='naughty-button-icon';span.dataset.naughtyArt='';span.setAttribute('aria-hidden','true');span.innerHTML=icon(key);button.prepend(span);}}

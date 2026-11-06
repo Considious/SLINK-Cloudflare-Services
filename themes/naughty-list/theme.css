@@ -113,6 +113,19 @@
 [data-theme="slink-naughty-list"] .mock-alert h3{color:#fff;text-shadow:0 2px 2px #000}
 [data-theme="slink-naughty-list"] .mock-alert p{color:#e0e5e8}
 /* Foreground binding: absolute edge rails above all cards, never in the flow. */
+/* Props occupy the title/description side column, never the action row. */
+[data-theme="slink-naughty-list"] .mock-alert.has-naughty-prop{display:grid;grid-template-columns:minmax(0,1fr) clamp(110px,21%,190px);column-gap:16px}
+[data-theme="slink-naughty-list"] .has-naughty-prop>:is(.tag,h3,p){grid-column:1;min-width:0}
+[data-theme="slink-naughty-list"] .has-naughty-prop>.action-row{grid-column:1/-1;grid-row:4;margin-top:10px;position:relative;z-index:2}
+[data-theme="slink-naughty-list"] .naughty-prop-art{position:relative;display:flex;grid-column:2;grid-row:1/4;align-self:center;align-items:center;justify-content:center;pointer-events:none;user-select:none}
+[data-theme="slink-naughty-list"] .naughty-prop-art img{display:block;width:100%;height:auto;max-height:145px;object-fit:contain;filter:drop-shadow(0 0 7px #b98e2c55)}
+[data-theme="slink-naughty-list"] [data-naughty-prop=medical] .naughty-prop-art img{filter:drop-shadow(0 0 7px #19bfff88)}
+[data-theme="slink-naughty-list"] :is([data-naughty-prop=drug],[data-naughty-prop=energy]) .naughty-prop-art img{filter:drop-shadow(0 0 7px #39f54f88)}
+[data-theme="slink-naughty-list"] :is([data-naughty-prop=booster],[data-naughty-prop=nerve]) .naughty-prop-art img{filter:drop-shadow(0 0 7px #ff173e88)}
+[data-theme="slink-naughty-list"] .naughty-prop-emblem{position:absolute;right:0;bottom:0;display:grid;place-items:center;width:30px;height:30px;border:2px solid #f4d07d;border-radius:50%;background:#080b07;box-shadow:0 0 7px currentColor;color:#5bff79}
+[data-theme="slink-naughty-list"] .naughty-prop-emblem[data-emblem=flame]{color:#ff4252}
+[data-theme="slink-naughty-list"] .naughty-prop-emblem svg{width:21px;height:21px;fill:currentColor}
+@media(max-width:600px){[data-theme="slink-naughty-list"] .mock-alert.has-naughty-prop{grid-template-columns:minmax(0,1fr) 90px;column-gap:8px}[data-theme="slink-naughty-list"] .naughty-prop-art img{max-height:110px}}
 /* Navigation is warm black enamel/gold chain, never the default blue steel. */
 [data-theme="slink-naughty-list"] :is(.section-tabs,.module-tabs) button{--chain-edge:8px;--nav-glow:#f31c3b;background:linear-gradient(135deg,#26150b,#100b08 45%,#020502 75%,#102d12);border:1px solid transparent;color:#fff1d4;box-shadow:inset 0 0 13px #c38b1544,0 0 5px #f3223244;text-shadow:0 1px 2px #000;padding:10px 13px}
 [data-theme="slink-naughty-list"] :is(.section-tabs,.module-tabs) button:nth-child(even){--nav-glow:#29ed61;background:linear-gradient(135deg,#1b2c0c,#090b05 50%,#251008);box-shadow:inset 0 0 13px #dba42344,0 0 5px #26df6144}
