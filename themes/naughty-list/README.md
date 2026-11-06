@@ -39,3 +39,7 @@ The coal slogan is painted directly onto a portrait hideout wall, not inserted a
 
 Theme-local header: **SLINK** / **Santa’s Ledger of Illicit Naughty Knowledge**, with a Santa hat on the SL badge. Switching themes restores the normal header and icons. Transparent candy cane/gold-chain rails sit above the outer panel edges and ignore pointer input. Alert borders alternate brighter red and green, while existing status labels retain their meaning. Metric gradients are retained, with reversed red/green directions on adjacent tiles. Original SVG button icons include all four bottom navigation buttons. No changes to app logic or the production catalogue.
 
+# Foreground trim scale
+
+Candy-cane/chain artwork is now magnified uniformly inside a narrow, clipped side rail (160px background width on desktop, 120px on mobile). Both dimensions scale together; transparent gutters are cropped by the rail instead of shrinking the ornament into noise. Fewer, larger repeats reveal the chain links and stripes. A dark backing separates the trim from the busy wall without adding width to the page or blocking controls.
+
