@@ -1,0 +1,34 @@
+[
+  {
+    "id": "background",
+    "source": "background.png"
+  },
+  {
+    "id": "frame",
+    "source": "frame.png"
+  },
+  {
+    "id": "button",
+    "source": "button.png"
+  },
+  {
+    "id": "rail",
+    "source": "rail.png"
+  },
+  {
+    "id": "brand",
+    "source": "brand.png"
+  },
+  {
+    "id": "medical",
+    "source": "medical.png"
+  },
+  {
+    "id": "casino",
+    "source": "casino.png"
+  },
+  {
+    "id": "market",
+    "source": "market.png"
+  }
+]

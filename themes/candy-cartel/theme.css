@@ -1,0 +1,87 @@
+/* Candy Cartel, scoped to this draft. No filters/animations/polling over the full page. */
+.theme-candy-cartel{--candy-gold:#efc36c;--candy-violet:#a743ff;--candy-lime:#b0ee35;border-color:#b98c48;border-radius:18px;background:#140e16;box-shadow:0 0 28px #7d20b449,0 12px 48px #0009}
+.theme-candy-cartel.theme-surface::before{background:none}
+.theme-candy-cartel .theme-art{background-image:var(--slink-theme-background-image);background-position:center top;background-size:100% auto;background-repeat:repeat-y;opacity:1}
+.theme-candy-cartel .mock-header{min-height:196px;padding:24px 36px;align-items:flex-start;background:linear-gradient(180deg,#150b1b30,#150b1b25 65%,#150b1bda);border-color:#ae7d3b}
+.theme-candy-cartel .mock-header>div{padding-top:22px;text-shadow:0 2px 4px #000,0 0 12px #000}
+.theme-candy-cartel .mock-header strong{font-size:38px;letter-spacing:.06em;color:#fff3cb}
+.theme-candy-cartel .mock-header small{font-size:11px;line-height:1.5;max-width:260px;color:#ffe7ad;letter-spacing:.08em}
+.theme-candy-cartel .mock-header .brand-mark{width:112px;height:112px;background:var(--slink-theme-brand-icon) center/contain no-repeat;border:0;box-shadow:none;border-radius:0;flex-shrink:0;color:transparent}
+.theme-candy-cartel .mock-header button{margin-top:19px}
+.theme-candy-cartel .mock-content{padding:26px 34px}
+.theme-candy-cartel .module-tabs,.theme-candy-cartel .section-tabs{padding:14px 32px;background:linear-gradient(110deg,#25102dde,#120b18ed);border-color:#b18545;gap:10px}
+.theme-candy-cartel .section-tabs button{min-height:76px;flex-wrap:wrap;font-weight:650}
+.theme-candy-cartel .module-tabs button{padding:9px 15px;font-weight:600}
+.theme-candy-cartel button,.theme-candy-cartel select,.theme-candy-cartel input:not([type=checkbox]){background:linear-gradient(135deg,#5b2e68,#211128 60%,#392519);border-color:#b68642;color:#fff0d1;border-radius:10px;position:relative}
+.theme-candy-cartel button::before{content:"";position:absolute;inset:-3px;border:10px solid transparent;border-image:var(--candy-button-frame) 16% / 10px / 0 round;pointer-events:none;border-radius:inherit}
+.theme-candy-cartel button[aria-pressed=true]{background:linear-gradient(120deg,#822cbe,#4b146b 60%,#375516);box-shadow:0 0 16px #ac3fff88,inset 0 0 15px #b226f53a;border-color:#f2cf8d}
+.theme-candy-cartel .section-tabs button:nth-child(2n)[aria-pressed=true]{background:linear-gradient(120deg,#425717,#351246 65%,#621d91);box-shadow:0 0 18px #96d13255}
+.theme-candy-cartel button:hover{filter:brightness(1.16)}
+.theme-candy-cartel button:focus-visible,.theme-candy-cartel select:focus-visible,.theme-candy-cartel input:focus-visible{outline:2px solid #d5ff73;outline-offset:5px}
+.theme-candy-cartel button:disabled{filter:grayscale(.7);opacity:.45}
+.theme-candy-cartel input[type=checkbox]{accent-color:#9341d8}
+.theme-candy-cartel .mock-alert,.theme-candy-cartel .mock-metrics>div,.theme-candy-cartel .mock-control-grid,.theme-candy-cartel .chat-example{position:relative;border:1px solid #ba934a;border-radius:13px;background:linear-gradient(125deg,#51126833,#0d0a1126 62%,#612b362e),color-mix(in srgb,#160d1d calc(var(--panel-alpha)*100%),transparent);box-shadow:0 0 14px #9c2bdc44,inset 0 0 20px #49116c44}
+.theme-candy-cartel .mock-alert::before,.theme-candy-cartel .mock-metrics>div::before,.theme-candy-cartel .mock-control-grid::before,.theme-candy-cartel .chat-example::before{content:"";position:absolute;inset:-5px;border:20px solid transparent;border-image:var(--candy-frame) 16% / 20px / 0 round;pointer-events:none;z-index:1}
+.theme-candy-cartel .mock-alert{padding:23px 22px;margin-top:24px}
+.theme-candy-cartel .mock-alert:nth-of-type(even){box-shadow:0 0 15px #9bdb334d,inset 0 0 20px #4165222e}
+.theme-candy-cartel .mock-alert.warning{box-shadow:0 0 17px #d5a54344,inset 0 0 18px #684d192e}
+.theme-candy-cartel .mock-alert.error{box-shadow:0 0 17px #d52d634d,inset 0 0 18px #6512283b}
+.theme-candy-cartel .mock-alert .tag{color:var(--tone,#c8ed76)}
+.theme-candy-cartel .mock-alert p{color:#e1d1e7;line-height:1.55}
+.theme-candy-cartel .mock-alert[data-candy-prop]{min-height:168px;display:grid;grid-template-columns:minmax(0,1fr) 140px;column-gap:16px}
+.theme-candy-cartel .mock-alert[data-candy-prop]>.tag,.theme-candy-cartel .mock-alert[data-candy-prop]>h3,.theme-candy-cartel .mock-alert[data-candy-prop]>p{grid-column:1}
+.theme-candy-cartel .candy-prop{grid-column:2;grid-row:1/4;width:140px;height:120px;object-fit:contain;align-self:start;pointer-events:none;filter:drop-shadow(0 3px 6px #0009)}
+.theme-candy-cartel .mock-alert[data-candy-prop] .action-row{grid-column:1/-1;position:relative;padding-top:10px;margin-top:12px;min-height:38px}
+.theme-candy-cartel .mock-metrics{gap:18px;margin-block:22px 27px}
+.theme-candy-cartel .mock-metrics>div{padding:21px 12px;background:linear-gradient(125deg,#531675bd,#1a1125 52%,#30481ac7);box-shadow:0 0 12px #9844e34d}
+.theme-candy-cartel .mock-metrics>div:nth-child(2){background:linear-gradient(120deg,#3d5019bd,#1c1225 52%,#5c2338c7)}
+.theme-candy-cartel .mock-metrics strong{color:#fff3d7;font-size:24px}
+.theme-candy-cartel .mock-metrics small{color:#e3cee8}
+.theme-candy-cartel .panel-heading{padding:0 5px}
+.theme-candy-cartel .panel-heading h2{color:#fff2d4;text-shadow:0 0 12px #b957ff6b}
+.theme-candy-cartel .chat-example{margin:5px 34px 25px}
+.theme-candy-cartel .mock-control-grid{padding:20px}
+.theme-candy-cartel .chat-heading{background:linear-gradient(100deg,#5a2183,#281338 70%,#3b4d1b)}
+.theme-candy-cartel .mock-chat-bar{padding-inline:34px;background:#1b0f24e8}
+.theme-candy-cartel .room-shortcut{background:linear-gradient(135deg,#7626a7,#32133f 60%,#4b3d1f);border-color:#d8ac57}
+.theme-candy-cartel .candy-rail{position:absolute!important;top:0;bottom:0;width:76px;background-position:top center;background-size:76px auto;background-repeat:repeat-y;pointer-events:none;z-index:6!important}
+.theme-candy-cartel .candy-rail--left{left:-24px}
+.theme-candy-cartel .candy-rail--right{right:-24px;transform:scaleX(-1)}
+.theme-candy-cartel .nav-icon svg,.theme-candy-cartel .candy-button-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round;stroke-linecap:round;color:#f5d28d}
+.theme-candy-cartel .candy-button-icon{display:inline-flex;vertical-align:middle;margin-right:7px}
+.theme-candy-cartel .action-row .candy-button-icon svg{width:15px;height:15px}
+.theme-candy-cartel .section-tabs .nav-icon{display:inline-flex}
+.theme-candy-cartel .count{background:#651d87;border-color:#f1d98c;color:#fff3c4}
+@media(max-width:760px){
+ .theme-candy-cartel .mock-header,.theme-candy-cartel[data-layout=pda] .mock-header{padding:18px 27px;gap:9px;min-height:175px}
+ .theme-candy-cartel .mock-header .brand-mark{width:80px;height:92px}
+ .theme-candy-cartel .mock-header>div{padding-top:16px}
+ .theme-candy-cartel .mock-header strong{font-size:27px}
+ .theme-candy-cartel .mock-header small{font-size:9px;letter-spacing:.04em}
+ .theme-candy-cartel .mock-header button{width:29px;min-width:29px;margin-top:19px}
+ .theme-candy-cartel .mock-content,.theme-candy-cartel[data-layout=pda] .mock-content{padding:20px 26px}
+ .theme-candy-cartel .section-tabs,.theme-candy-cartel .module-tabs{padding-inline:26px;gap:9px}
+ .theme-candy-cartel .section-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .theme-candy-cartel .section-tabs button{min-height:70px;flex-direction:row;font-size:11px}
+ .theme-candy-cartel .mock-alert{padding:20px 15px}
+ .theme-candy-cartel .mock-alert[data-candy-prop]{grid-template-columns:minmax(0,1fr) 78px;column-gap:12px;min-height:195px}
+ .theme-candy-cartel .candy-prop{width:78px;height:97px}
+ .theme-candy-cartel .mock-alert[data-candy-prop] .action-row{margin-top:18px;padding-top:6px}
+ .theme-candy-cartel .mock-metrics{gap:12px}
+ .theme-candy-cartel .mock-metrics>div{padding:17px 6px}
+ .theme-candy-cartel .mock-metrics strong{font-size:17px}
+ .theme-candy-cartel .mock-metrics small{font-size:10px}
+ .theme-candy-cartel .chat-example,.theme-candy-cartel[data-layout=pda] .chat-example{margin-inline:26px}
+ .theme-candy-cartel .mock-chat-bar{padding-inline:26px;gap:5px;flex-wrap:wrap}
+ .theme-candy-cartel .mock-control-grid{padding:16px}
+}
+/* A manually selected PDA preview keeps the same mobile rules even on a wide screen. */
+.theme-candy-cartel[data-layout=pda] .mock-header{padding:18px 27px;min-height:175px;gap:9px}
+.theme-candy-cartel[data-layout=pda] .mock-header .brand-mark{width:80px;height:92px}
+.theme-candy-cartel[data-layout=pda] .mock-header strong{font-size:27px}
+.theme-candy-cartel[data-layout=pda] .mock-header small{font-size:9px;letter-spacing:.04em}
+.theme-candy-cartel[data-layout=pda] .mock-header>div{padding-top:16px}
+.theme-candy-cartel[data-layout=pda] .mock-alert[data-candy-prop]{grid-template-columns:minmax(0,1fr) 78px;column-gap:12px;min-height:195px}
+.theme-candy-cartel[data-layout=pda] .candy-prop{width:78px;height:97px}
+.theme-candy-cartel[data-layout=pda] .mock-alert[data-candy-prop] .action-row{margin-top:18px}
+.theme-candy-cartel[data-layout=pda] .section-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
