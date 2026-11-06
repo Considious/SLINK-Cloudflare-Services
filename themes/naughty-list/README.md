@@ -14,7 +14,9 @@ The `SLINK-Website` Theme Lab includes an identical package under `site/themes/n
 - `prepare-assets.mjs`: mechanical slicing/optimization of the generated source PNGs. It needs the host's Sharp module path in `SLINK_SHARP_MODULE`, followed by the two source image paths. No external image API or key is needed to reuse the finished assets.
 - `ASSET-PROMPTS.md`: asset provenance and complete prompts used with the built-in image tool.
 
-Total raster package: 560,550 bytes including the optional atlas. No animated snow, live poller, external font or broad blur/filter effects. The webpage reuses the images across components.
+Total raster package: 837,908 bytes including the optional atlas. The visible coal/graffiti vignette and crowned-skull blacklist note are allocated their own layout space, not hidden under cards or painted over text. `prepare-atmosphere.mjs` optimizes those new assets; their prompts are recorded in ASSET-PROMPTS.md.
+
+No animated snow, live poller, external font or broad blur/filter effects. The webpage reuses the images across components.
 
 ## Preview
 

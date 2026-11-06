@@ -1,0 +1,5 @@
+// Format optimisation of new reference-guided artwork. No artistic edits or baked UI.
+import {pathToFileURL,fileURLToPath} from 'node:url';import path from 'node:path';import {stat} from 'node:fs/promises';
+const sharp=(await import(pathToFileURL(process.env.SLINK_SHARP_MODULE))).default,root=path.dirname(fileURLToPath(import.meta.url));
+const specs=[{source:process.argv[2],name:'naughty_coal_graffiti_v2.webp',width:1000},{source:process.argv[3],name:'naughty_blacklist_note_v2.webp',width:360}];let total=0;
+for(const x of specs){if(!x.source)throw Error('Supply both generated image paths.');const meta=await sharp(x.source).metadata();if(!meta.hasAlpha)throw Error('Decoration must preserve transparency.');const target=path.join(root,'assets/overlays',x.name);await sharp(x.source).resize({width:x.width,withoutEnlargement:true}).webp({quality:86,alphaQuality:100,effort:5}).toFile(target);const size=(await stat(target)).size;total+=size;console.log(x.name+': '+size+' bytes');}if(total>450000)throw Error('Atmosphere asset budget exceeded.');
