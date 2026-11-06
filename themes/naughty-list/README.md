@@ -1,8 +1,8 @@
 # SLINK Naughty List — testing only
 
-Branch: `themes`. ID: `slink-naughty-list`. This package is **not registered in the production catalogue** and does not change extension/PDA behaviour or permissions.
+Theme package branch: `themes`. ID: `slink-naughty-list`. This package is **not registered in the production catalogue** and does not change extension/PDA behaviour or permissions.
 
-The `SLINK-Website` themes branch includes an identical package under `site/themes/naughty-list/`. Its Theme Lab registers the draft locally; it does not request a key or call SLINK game services. The production homepage/theme collection remains unchanged.
+The `SLINK-Website` Theme Lab includes an identical package under `site/themes/naughty-list/`. Its Theme Lab registers the draft locally; it does not request a key or call SLINK game services. The production app theme collection remains unchanged; the website lab is allowed on website main.
 
 ## Package
 
@@ -18,9 +18,9 @@ Total raster package: 560,550 bytes including the optional atlas. No animated sn
 
 ## Preview
 
-Deploy the **website `themes` branch to a separate Cloudflare preview**, with `site` as the same static asset directory used by the existing website. Open `/theme-lab/?theme=slink-naughty-list` on that preview. Do not change the production branch or deploy the theme branch over the production Worker to obtain a preview.
+Open https://sharedliveintelligencenetwork.app/theme-lab/?theme=slink-naughty-list after the website's normal main-branch build. The draft is registered locally in the lab only. It is not added to the production theme catalogue or to the extension/PDA branches.
 
-No production branch was changed. The live website's existing lab cannot load this draft until a testing deployment is available; a branch-only commit is not itself a live preview URL.
+Website main is permitted for the lab. Extension main, PDA main and the shared production theme catalogue are unchanged. The reusable theme package remains on the Services repository's themes branch for review.
 
 ## Validation / review
 
