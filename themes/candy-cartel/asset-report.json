@@ -100,5 +100,17 @@
     "width": 320,
     "height": 320,
     "alpha": true
+  },
+  {
+    "id": "frame-chocolate-v2",
+    "width": 700,
+    "height": 700,
+    "alpha": true
+  },
+  {
+    "id": "button-chocolate-v2",
+    "width": 500,
+    "height": 500,
+    "alpha": true
   }
 ]

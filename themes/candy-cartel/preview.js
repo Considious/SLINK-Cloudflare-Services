@@ -13,6 +13,12 @@ export function decorateCandyPreview(root,theme,screen){
  const add=(parent,node)=>{parent.append(node);cleanup.push(()=>node.remove());return node;};
  for(const side of ['left','right']){const rail=document.createElement('div');rail.className='candy-rail candy-rail--'+side;rail.dataset.candyArt='';rail.setAttribute('aria-hidden','true');rail.style.backgroundImage='url("'+theme.assets.sideRail+'")';add(root,rail);}
  cleanup.push(decorateCandyAlerts(root,theme,screen));
+ // Native selects cannot reliably render generated border pseudo-elements.
+ // Keep the actual select for native popup, keyboard and touch behaviour.
+ for(const select of root.querySelectorAll('select')){
+  const shell=document.createElement('span');shell.className='candy-select-shell';select.before(shell);shell.append(select);
+  cleanup.push(()=>shell.replaceWith(select));
+ }
  for(const b of root.querySelectorAll('button')){
   const nav=b.querySelector('.nav-icon'),key=nav?b.dataset.section:({Refresh:'refresh',Open:'open',Dismiss:'dismiss',Alerts:'bell',Market:'market',Crimes:'crimes',Merits:'merits',Rooms:'chat'}[b.textContent.trim()]);if(!shapes[key])continue;
   if(nav){const old=nav.innerHTML;nav.innerHTML=icon(key);cleanup.push(()=>nav.innerHTML=old);}else{const span=document.createElement('span');span.className='candy-button-icon';span.dataset.candyArt='';span.innerHTML=icon(key);add(b,span);b.prepend(span);}

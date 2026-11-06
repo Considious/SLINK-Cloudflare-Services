@@ -26,7 +26,7 @@ export const candyCartelTheme=Object.freeze({
   '--slink-radius-small':'8px','--slink-radius-medium':'12px','--slink-radius-large':'18px'
  },
  assets:{background:asset('background'),brandIcon:asset('brand'),chatIcon:asset('brand'),
-  candyFrame:asset('frame'),candyButtonFrame:asset('button'),sideRail:asset('rail'),
+  candyFrame:asset('frame-chocolate-v2'),candyButtonFrame:asset('button-chocolate-v2'),sideRail:asset('rail'),
   alertProps:Object.fromEntries(['medical','drug','booster','casino','addiction','shopping','flight','racing','education','stocks','oc','market'].map(id=>[id,asset(id)]))},
  styles:'theme.css'
 });

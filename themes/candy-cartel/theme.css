@@ -13,7 +13,10 @@
 .theme-candy-cartel .section-tabs button{min-height:76px;flex-wrap:wrap;font-weight:650}
 .theme-candy-cartel .module-tabs button{padding:9px 15px;font-weight:600}
 .theme-candy-cartel button,.theme-candy-cartel select,.theme-candy-cartel input:not([type=checkbox]){background:linear-gradient(135deg,#5b2e68,#211128 60%,#392519);border-color:#b68642;color:#fff0d1;border-radius:10px;position:relative}
-.theme-candy-cartel button::before{content:"";position:absolute;inset:-3px;border:10px solid transparent;border-image:var(--candy-button-frame) 16% / 10px / 0 round;pointer-events:none;border-radius:inherit}
+.theme-candy-cartel button::before,.theme-candy-cartel .candy-select-shell::before{content:"";position:absolute;inset:-3px;border:10px solid transparent;border-image:var(--candy-button-frame) 16% / 10px / 0 round;pointer-events:none;border-radius:inherit;z-index:1}
+.theme-candy-cartel .candy-select-shell{position:relative;display:inline-flex;max-width:100%;min-width:0;border-radius:10px;vertical-align:middle}
+.theme-candy-cartel .candy-select-shell select{max-width:100%;min-width:0;margin:0;border-color:transparent;background:linear-gradient(135deg,#41252e,#1d0f25);padding:7px 14px;min-height:34px}
+.theme-candy-cartel select option{background:#24142b;color:#fff0d1}
 .theme-candy-cartel button[aria-pressed=true]{background:linear-gradient(120deg,#822cbe,#4b146b 60%,#375516);box-shadow:0 0 16px #ac3fff88,inset 0 0 15px #b226f53a;border-color:#f2cf8d}
 .theme-candy-cartel .section-tabs button:nth-child(2n)[aria-pressed=true]{background:linear-gradient(120deg,#425717,#351246 65%,#621d91);box-shadow:0 0 18px #96d13255}
 .theme-candy-cartel button:hover{filter:brightness(1.16)}
@@ -22,9 +25,10 @@
 .theme-candy-cartel input[type=checkbox]{accent-color:#9341d8}
 .theme-candy-cartel .mock-alert,.theme-candy-cartel .mock-metrics>div,.theme-candy-cartel .mock-control-grid,.theme-candy-cartel .chat-example{position:relative;border:1px solid #ba934a;border-radius:13px;background:linear-gradient(125deg,#51126833,#0d0a1126 62%,#612b362e),color-mix(in srgb,#160d1d calc(var(--panel-alpha)*100%),transparent);box-shadow:0 0 14px #9c2bdc44,inset 0 0 20px #49116c44}
 .theme-candy-cartel .mock-alert::before,.theme-candy-cartel .mock-metrics>div::before,.theme-candy-cartel .mock-control-grid::before,.theme-candy-cartel .chat-example::before{content:"";position:absolute;inset:-5px;border:20px solid transparent;border-image:var(--candy-frame) 16% / 20px / 0 round;pointer-events:none;z-index:1}
-.theme-candy-cartel .mock-alert{--candy-alert-end:#8b173bba;--candy-alert-glow:#ef315c66;padding:23px 22px;margin-top:24px;background:linear-gradient(112deg,#6b229ab3,#35104788 45%,var(--candy-alert-end)),color-mix(in srgb,#160d1d calc(var(--panel-alpha)*100%),transparent);box-shadow:-3px 0 17px #a22cfa66,3px 0 17px var(--candy-alert-glow),inset 0 0 17px #180b2566}
-.theme-candy-cartel .mock-alert:nth-of-type(odd){--candy-alert-end:#3e681fba;--candy-alert-glow:#a0e14466}
-.theme-candy-cartel .mock-alert.error{--candy-alert-end:#8b173bba;--candy-alert-glow:#ef315c66}
+.theme-candy-cartel .mock-alert{--candy-alert-start:#6b229ab3;--candy-alert-end:#8b173bba;--candy-glow-start:#a22cfa66;--candy-glow-end:#ef315c66;padding:23px 22px;margin-top:24px;background:linear-gradient(112deg,var(--candy-alert-start),#35104788 45%,var(--candy-alert-end)),color-mix(in srgb,#160d1d calc(var(--panel-alpha)*100%),transparent);box-shadow:-3px 0 17px var(--candy-glow-start),3px 0 17px var(--candy-glow-end),inset 0 0 17px #180b2566}
+.theme-candy-cartel .mock-alert:nth-of-type(4n+1){--candy-alert-end:#3e681fba;--candy-glow-end:#a0e14466}
+.theme-candy-cartel .mock-alert:nth-of-type(4n+2),.theme-candy-cartel .mock-alert.error{--candy-alert-start:#8b173bba;--candy-alert-end:#6b229ab3;--candy-glow-start:#ef315c66;--candy-glow-end:#a22cfa66}
+.theme-candy-cartel .mock-alert:nth-of-type(4n+3):not(.error){--candy-alert-start:#3e681fba;--candy-alert-end:#6b229ab3;--candy-glow-start:#a0e14466;--candy-glow-end:#a22cfa66}
 .theme-candy-cartel .mock-alert .tag{color:var(--tone,#c8ed76)}
 .theme-candy-cartel .mock-alert p{color:#e1d1e7;line-height:1.55}
 .theme-candy-cartel .mock-alert[data-candy-prop]{min-height:168px;display:grid;grid-template-columns:minmax(0,1fr) 140px;column-gap:16px}

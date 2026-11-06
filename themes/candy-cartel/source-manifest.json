@@ -66,5 +66,13 @@
   {
     "id": "oc",
     "source": "oc.png"
+  },
+  {
+    "id": "frame-chocolate-v2",
+    "source": "frame-chocolate-v2.png"
+  },
+  {
+    "id": "button-chocolate-v2",
+    "source": "button-chocolate-v2.png"
   }
 ]
