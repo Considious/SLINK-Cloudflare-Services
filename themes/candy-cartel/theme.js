@@ -5,7 +5,7 @@ export const candyCartelTheme=Object.freeze({
  description:'Purple sugar glass, gold wrappers and liquorice luxury. A candy-mafia speakeasy, tested in the lab only.',
  testingOnly:true,releaseStatus:'draft',scope:null,ornament:'candy-cartel',
  swatch:['#221128','#842fe2','#dca642','#9bd52b'],
- branding:{title:'SLINK',subtitle:'CANDY CARTEL · Sweet deals. Bad company.'},
+ branding:{title:'SLINK',subtitle:'Sugar Logistics & Illicit Network of Kriminals'},
  tokens:{
   '--slink-bg':'#140e16','--slink-bg-raised':'#28172d','--slink-bg-control':'#24132b',
   '--slink-surface':'#211125','--slink-card':'#160d1d','--slink-control':'#291630',
@@ -27,7 +27,7 @@ export const candyCartelTheme=Object.freeze({
  },
  assets:{background:asset('background'),brandIcon:asset('brand'),chatIcon:asset('brand'),
   candyFrame:asset('frame'),candyButtonFrame:asset('button'),sideRail:asset('rail'),
-  alertProps:Object.fromEntries(['medical','casino','market'].map(id=>[id,asset(id)]))},
+  alertProps:Object.fromEntries(['medical','drug','booster','casino','addiction','shopping','flight','racing','education','stocks','oc','market'].map(id=>[id,asset(id)]))},
  styles:'theme.css'
 });
 export default candyCartelTheme;

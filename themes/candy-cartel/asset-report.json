@@ -46,5 +46,59 @@
     "width": 320,
     "height": 320,
     "alpha": true
+  },
+  {
+    "id": "drug",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "booster",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "addiction",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "shopping",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "flight",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "racing",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "education",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "stocks",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "oc",
+    "width": 320,
+    "height": 320,
+    "alpha": true
   }
 ]

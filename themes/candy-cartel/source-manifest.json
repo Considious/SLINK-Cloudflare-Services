@@ -30,5 +30,41 @@
   {
     "id": "market",
     "source": "market.png"
+  },
+  {
+    "id": "drug",
+    "source": "drug.png"
+  },
+  {
+    "id": "booster",
+    "source": "booster.png"
+  },
+  {
+    "id": "addiction",
+    "source": "addiction.png"
+  },
+  {
+    "id": "shopping",
+    "source": "shopping.png"
+  },
+  {
+    "id": "flight",
+    "source": "flight.png"
+  },
+  {
+    "id": "racing",
+    "source": "racing.png"
+  },
+  {
+    "id": "education",
+    "source": "education.png"
+  },
+  {
+    "id": "stocks",
+    "source": "stocks.png"
+  },
+  {
+    "id": "oc",
+    "source": "oc.png"
   }
 ]
