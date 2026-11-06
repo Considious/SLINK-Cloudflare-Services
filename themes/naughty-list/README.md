@@ -43,3 +43,7 @@ Theme-local header: **SLINK** / **Santa’s Ledger of Illicit Naughty Knowledge*
 
 Candy-cane/chain artwork is now magnified uniformly inside a narrow, clipped side rail (160px background width on desktop, 120px on mobile). Both dimensions scale together; transparent gutters are cropped by the rail instead of shrinking the ornament into noise. Fewer, larger repeats reveal the chain links and stripes. A dark backing separates the trim from the busy wall without adding width to the page or blocking controls.
 
+# Gold-chain navigation
+
+Both module tabs and the four bottom navigation buttons now use warm black/gold enamel instead of blue steel, with generated transparent gold-chain nine-slice borders. Crimson and emerald glows alternate, and the selected tab has a brighter interior/exterior light. Chain borders never intercept input; keyboard focus remains visible. Existing alert frames, metric gradients, candy-cane rails and other themes are unchanged.
+
