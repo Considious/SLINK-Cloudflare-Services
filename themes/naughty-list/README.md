@@ -35,3 +35,7 @@ Before release: user visual approval against the supplied concept, optional furt
 
 The coal slogan is painted directly onto a portrait hideout wall, not inserted as a content panel. Removed the added timer/Stack sample block. The wallpaper scales proportionally to the dashboard width and repeats vertically for long pages: it never stretches lettering or stops at the end of a square image. Bright crimson/emerald light, gold skulls/chains and a red syringe restore the original reference's deliberately excessive character. Alert text remains on dark surfaces; all decoration is non-interactive. No extra content height is reserved for background artwork.
 
+# Finishing revision 4
+
+Theme-local header: **SLINK** / **Santa’s Ledger of Illicit Naughty Knowledge**, with a Santa hat on the SL badge. Switching themes restores the normal header and icons. Transparent candy cane/gold-chain rails sit above the outer panel edges and ignore pointer input. Alert borders alternate brighter red and green, while existing status labels retain their meaning. Metric gradients are retained, with reversed red/green directions on adjacent tiles. Original SVG button icons include all four bottom navigation buttons. No changes to app logic or the production catalogue.
+

@@ -1,12 +1,18 @@
 import {NaughtyFrame} from './frame.js';
 const pages={War:'war',Targets:'targets',Mugging:'mugging',Leveling:'combat',Market:'market',Racing:'racing',Chat:'chat'};
 let cleanup=[];
+// Original theme-local SVGs, not emoji: consistent silver/gold finish on every platform.
+const shapes={combat:'M5 3l16 16-3 3L2 6V2h4M16 3l5-1v5L5 22l-3-3L16 3',efficiency:'M12 2v20M3.3 7l17.4 10M3.3 17L20.7 7M9 4l3 3 3-3M9 20l3-3 3 3',qol:'M3 7l4-4h10l4 4-9 14L3 7h18M7 3l5 18 5-18',access:'M10 2h4l1 4 3-2 3 3-2 3 3 1v4l-4 1 2 3-3 2-3-2-1 3h-4l-1-4-3 2-2-3 2-3-3-1v-4l4-1-2-3 3-2 3 2 1-3M16 12a4 4 0 1 0-8 0 4 4 0 0 0 8 0',refresh:'M20 9a8 8 0 1 0 0 7M20 3v6h-6',open:'M13 3h8v8M21 3L10 14M10 5H4v16h16v-6',dismiss:'M5 5l14 14M19 5L5 19',bell:'M5 17h14l-2-4V9a5 5 0 0 0-10 0v4l-2 4M10 21h4',market:'M3 21V11h4v10M10 21V6h4v15M17 21V2h4v19',crimes:'M8 14c-5-3-1-9 4-12-1 5 8 6 7 12a7 7 0 0 1-14 0M10 20c-3-3 0-5 2-7 0 3 5 4 2 7',merits:'M12 2l3 7h7l-6 5 2 8-6-5-6 5 2-8-6-5h7l3-7',chat:'M3 3h18v13H9l-6 5V3',retry:'M20 9a8 8 0 1 0 0 7M20 3v6h-6',details:'M12 11v7M12 6v1M22 12a10 10 0 1 0-20 0 10 10 0 0 0 20 0'};
+const icon=name=>'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="'+shapes[name]+'"/></svg>';
 export function decorateNaughtyPreview(root,theme,screen){
  cleanup.forEach(fn=>fn());cleanup=[];
  root.classList.remove('theme-naughty-list');delete root.dataset.naughtyPage;
  for(const old of root.querySelectorAll('[data-naughty-flavor],[data-naughty-samples],[data-naughty-art]'))old.remove();
  if(!theme?.testingOnly||theme.id!=='slink-naughty-list')return;
  root.classList.add('theme-naughty-list');root.dataset.naughtyPage=pages[screen]||'dashboard';
+ for(const [selector,text]of [['.mock-header strong',theme.branding.title],['.mock-header small',theme.branding.subtitle]]){const el=root.querySelector(selector);if(el){const old=el.textContent;el.textContent=text;cleanup.push(()=>el.textContent=old);}}
+ for(const side of ['left','right']){const rail=document.createElement('div');rail.dataset.naughtyArt='';rail.className='naughty-side-rail naughty-side-rail--'+side;rail.setAttribute('aria-hidden','true');rail.style.backgroundImage='url("'+theme.assets.sideRail+'")';root.append(rail);}
+ for(const button of root.querySelectorAll('button')){const nav=button.querySelector('.nav-icon');const key=nav?({combat:'combat',efficiency:'efficiency',qol:'qol',access:'access'}[button.dataset.section]):({Refresh:'refresh',Open:'open',Dismiss:'dismiss',Alerts:'bell',Market:'market',Crimes:'crimes',Merits:'merits',Rooms:'chat',Retry:'retry',Details:'details'}[button.textContent.trim()]);if(!key)continue;if(nav){const old=nav.innerHTML;nav.innerHTML=icon(key);cleanup.push(()=>nav.innerHTML=old);}else{const span=document.createElement('span');span.className='naughty-button-icon';span.dataset.naughtyArt='';span.setAttribute('aria-hidden','true');span.innerHTML=icon(key);button.prepend(span);}}
  // Wall graffiti is part of the wallpaper, never an inserted content section.
  const mission=root.querySelector('.mock-alert.warning');if(mission){const note=document.createElement('img');note.dataset.naughtyArt='';note.className='naughty-note-art';note.src=theme.assets.blacklistNote;note.alt='Decorative Naughty List with Candy, Babies and Everyone Else checked';note.width=360;note.height=400;note.decoding='async';mission.classList.add('has-naughty-note');cleanup.push(()=>mission.classList.remove('has-naughty-note'));mission.append(note);}
  const samples=document.createElement('details');samples.dataset.naughtySamples='';samples.className='naughty-components';

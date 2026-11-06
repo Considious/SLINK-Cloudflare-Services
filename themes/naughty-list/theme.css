@@ -112,4 +112,22 @@
 [data-theme="slink-naughty-list"] .mock-metrics>div{background:linear-gradient(130deg,#060b0fe0,#06140bd6);box-shadow:inset -4px -5px 14px #ff183e55,inset 3px 2px 12px #05ec6744,0 0 5px #e7253d88}
 [data-theme="slink-naughty-list"] .mock-alert h3{color:#fff;text-shadow:0 2px 2px #000}
 [data-theme="slink-naughty-list"] .mock-alert p{color:#e0e5e8}
+/* Foreground binding: absolute edge rails above all cards, never in the flow. */
+[data-theme="slink-naughty-list"] .naughty-side-rail{position:absolute;inset:0 auto 0 -14px;width:48px;z-index:6;background-position:center top;background-size:100% auto;background-repeat:repeat-y;pointer-events:none;user-select:none}
+[data-theme="slink-naughty-list"] .naughty-side-rail--right{inset:0 -14px 0 auto;transform:scaleX(-1)}
+[data-theme="slink-naughty-list"] .mock-header strong{font-size:32px;letter-spacing:.06em}
+[data-theme="slink-naughty-list"] .mock-header small{font-size:12px;line-height:1.4;max-width:38ch;margin-top:3px}
+[data-theme="slink-naughty-list"] .mock-header .theme-brand{width:66px;height:72px;flex-shrink:0}
+[data-theme="slink-naughty-list"] .mock-alert:nth-child(odd){box-shadow:inset 4px 0 #36ff67,inset 0 0 19px #06ec5266,0 0 10px #00e85c99}
+[data-theme="slink-naughty-list"] .mock-alert:nth-child(even){box-shadow:inset 4px 0 #ff2945,inset 0 0 19px #ff143b66,0 0 10px #ff173a99}
+/* Icon colour does not change the existing alert meaning or status text. */
+[data-theme="slink-naughty-list"] button{display:inline-flex;align-items:center;justify-content:center}
+[data-theme="slink-naughty-list"] .nav-icon,[data-theme="slink-naughty-list"] .naughty-button-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:19px;height:19px;vertical-align:middle;color:#ebdfbd;filter:drop-shadow(0 1px 1px #000)}
+[data-theme="slink-naughty-list"] .nav-icon{width:27px;height:27px;margin-right:3px}
+[data-theme="slink-naughty-list"] :is(.nav-icon,.naughty-button-icon) svg{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+[data-theme="slink-naughty-list"] .naughty-button-icon{margin-right:6px;width:15px;height:15px}
+[data-theme="slink-naughty-list"] .section-tabs button:nth-child(2) .nav-icon{color:#fff5d6}
+[data-theme="slink-naughty-list"] .mock-metrics>div:nth-child(2){background:linear-gradient(130deg,#062416e6,#060c0de8 45%,#45101dd9)}
+[data-theme="slink-naughty-list"] .mock-metrics>div:nth-child(3){background:linear-gradient(130deg,#3b0915e6,#060c0de8 45%,#073b20d9)}
+@media(max-width:600px){[data-theme="slink-naughty-list"] .naughty-side-rail{width:36px;left:-11px}[data-theme="slink-naughty-list"] .naughty-side-rail--right{left:auto;right:-11px}[data-theme="slink-naughty-list"] .mock-header strong{font-size:27px}[data-theme="slink-naughty-list"] .mock-header small{font-size:10px}[data-theme="slink-naughty-list"] .mock-header .theme-brand{width:50px;height:58px}[data-theme="slink-naughty-list"] .nav-icon{width:23px;height:23px;margin:0}[data-theme="slink-naughty-list"] .module-tabs{gap:6px}[data-theme="slink-naughty-list"] .module-tabs button{padding-inline:7px}[data-theme="slink-naughty-list"] .module-tabs .naughty-button-icon{width:12px;height:12px;margin-right:4px}}
 
