@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "christmas2026-release-1",
-  "updatedAt": "2026-11-06T06:53:55.530Z",
+  "revision": "candy-cartel-2026-11-06",
+  "updatedAt": "2026-11-06T00:00:00Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -376,6 +376,55 @@
         "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-brand.svg",
         "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-brand.svg",
         "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/christmas2026-frame.webp",
+        "packaged": true
+      }
+    },
+    {
+      "id": "slink-candy-cartel",
+      "label": "Candy Cartel",
+      "description": "Sugar Logistics & Illicit Network of Kriminals. Chocolate, purple candy, gold foil and pistachio/cherry glow.",
+      "scope": "slink.theme.candy-cartel",
+      "ornament": "none",
+      "swatch": [
+        "#221128",
+        "#842fe2",
+        "#9bd52b"
+      ],
+      "tokens": {
+        "--slink-bg": "#140e16",
+        "--slink-bg-raised": "#28172d",
+        "--slink-bg-control": "#24132b",
+        "--slink-surface": "#211125",
+        "--slink-card": "#160d1d",
+        "--slink-control": "#291630",
+        "--slink-border": "#cc9e4d",
+        "--slink-border-soft": "rgba(216,170,85,.4)",
+        "--slink-text": "#fff5df",
+        "--slink-muted": "#ddcbe1",
+        "--slink-accent": "#9438df",
+        "--slink-accent-alt": "#e3b656",
+        "--slink-ready": "#b4ed57",
+        "--slink-warning": "#ffcf75",
+        "--slink-error": "#ffa4b0",
+        "--slink-danger-bg": "#6f172d",
+        "--slink-link": "#dbb4ff",
+        "--slink-shadow": "rgba(0,0,0,.65)",
+        "--slink-page-bg": "#140e16",
+        "--slink-topbar-bg": "linear-gradient(120deg,#28112d,#110b15)",
+        "--slink-panel-bg": "rgba(22,13,29,.92)",
+        "--slink-button-bg": "linear-gradient(145deg,#51305e,#27132e 50%,#130a1a)",
+        "--slink-selected-bg": "linear-gradient(120deg,#7023b3,#481567 55%,#224c1a)",
+        "--slink-mark-bg": "linear-gradient(135deg,#62347c,#140b1a)",
+        "--slink-glow-left": "rgba(140,40,238,.22)",
+        "--slink-glow-right": "rgba(151,222,32,.12)",
+        "--slink-metal": "#f3cf7d",
+        "--slink-metal-dark": "#715022"
+      },
+      "assets": {
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/candy-cartel-background.webp",
+        "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/candy-cartel-brand.webp",
+        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/candy-cartel-brand.webp",
+        "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/candy-cartel-frame-chocolate-v2.webp",
         "packaged": true
       }
     }

@@ -1,0 +1,116 @@
+[
+  {
+    "id": "background",
+    "width": 887,
+    "height": 1774,
+    "alpha": false
+  },
+  {
+    "id": "frame",
+    "width": 700,
+    "height": 700,
+    "alpha": true
+  },
+  {
+    "id": "button",
+    "width": 500,
+    "height": 500,
+    "alpha": true
+  },
+  {
+    "id": "rail",
+    "width": 160,
+    "height": 480,
+    "alpha": true
+  },
+  {
+    "id": "brand",
+    "width": 240,
+    "height": 240,
+    "alpha": true
+  },
+  {
+    "id": "medical",
+    "width": 420,
+    "height": 210,
+    "alpha": true
+  },
+  {
+    "id": "casino",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "market",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "drug",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "booster",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "addiction",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "shopping",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "flight",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "racing",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "education",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "stocks",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "oc",
+    "width": 320,
+    "height": 320,
+    "alpha": true
+  },
+  {
+    "id": "frame-chocolate-v2",
+    "width": 700,
+    "height": 700,
+    "alpha": true
+  },
+  {
+    "id": "button-chocolate-v2",
+    "width": 500,
+    "height": 500,
+    "alpha": true
+  }
+]

@@ -1,0 +1,78 @@
+[
+  {
+    "id": "background",
+    "source": "background.png"
+  },
+  {
+    "id": "frame",
+    "source": "frame.png"
+  },
+  {
+    "id": "button",
+    "source": "button.png"
+  },
+  {
+    "id": "rail",
+    "source": "rail.png"
+  },
+  {
+    "id": "brand",
+    "source": "brand.png"
+  },
+  {
+    "id": "medical",
+    "source": "medical.png"
+  },
+  {
+    "id": "casino",
+    "source": "casino.png"
+  },
+  {
+    "id": "market",
+    "source": "market.png"
+  },
+  {
+    "id": "drug",
+    "source": "drug.png"
+  },
+  {
+    "id": "booster",
+    "source": "booster.png"
+  },
+  {
+    "id": "addiction",
+    "source": "addiction.png"
+  },
+  {
+    "id": "shopping",
+    "source": "shopping.png"
+  },
+  {
+    "id": "flight",
+    "source": "flight.png"
+  },
+  {
+    "id": "racing",
+    "source": "racing.png"
+  },
+  {
+    "id": "education",
+    "source": "education.png"
+  },
+  {
+    "id": "stocks",
+    "source": "stocks.png"
+  },
+  {
+    "id": "oc",
+    "source": "oc.png"
+  },
+  {
+    "id": "frame-chocolate-v2",
+    "source": "frame-chocolate-v2.png"
+  },
+  {
+    "id": "button-chocolate-v2",
+    "source": "button-chocolate-v2.png"
+  }
+]
