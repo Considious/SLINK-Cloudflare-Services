@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": "candy-cartel-2026-11-06",
-  "updatedAt": "2026-11-06T00:00:00Z",
+  "revision": "halloween2026-silver-1",
+  "updatedAt": "2026-11-07T02:50:22.437Z",
   "themes": [
     {
       "id": "slink-dark",
@@ -222,11 +222,12 @@
         "#75ff42"
       ],
       "assets": {
-        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-background.png",
+        "background": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-haunted-background-v1.webp",
         "iconSheet": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-icons.png",
         "packaged": true,
         "brandIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-brand.png",
-        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-chat.png"
+        "chatIcon": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-chat.png",
+        "frame": "https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/halloween-2026-silver-frame-v1.webp"
       },
       "tokens": {
         "--slink-bg": "#08050f",
