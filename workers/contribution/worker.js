@@ -1,4 +1,5 @@
 import '../shared/errors.js';
+import {releaseResponse} from './releases.js';
 /**
  * SLINK Contribution Service
  *
@@ -71,6 +72,7 @@ const textEncoder = new TextEncoder();
 
 const worker = {
     async fetch(request, env, ctx) {
+        if(new URL(request.url).pathname==='/api/releases'&&request.method==='GET')return releaseResponse(request,env,ctx);
         if(new URL(request.url).pathname.startsWith('/api/officer-work')){
             return handleOfficerWork(request,env,ctx,{session:permissionSession,hasScope,loadPermissions,encryptApiKey,decryptApiKey});
         }
@@ -3316,3 +3318,4 @@ export const testing = {
     sha256Hex,
     validatePublicOnlyTornKey
 };
+
