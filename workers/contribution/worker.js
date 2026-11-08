@@ -12,7 +12,7 @@ import '../shared/errors.js';
 import {handleFairFightBackup} from './fair-fight-backup.js';
 import {handleOfficerWork,runOfficerWork} from './officer-work/service.js';
 import {handleCrimeRecipes} from './crime-recipes.js';
-import {handleCrackingDictionary} from './cracking-dictionary.js';
+import {handleCrackingDictionary,contributeCracking} from './cracking-dictionary.js';
 import {handleFactionNode} from '../faction-node/central.js';
 const WORKER_VERSION = '0.4.12-officer-work';
 const DATA_TERMS_VERSION = '2026-11-01';
@@ -128,6 +128,9 @@ const worker = {
 
         if (url.pathname === '/api/user-backup' && request.method === 'GET') {
             return handleUserBackupRead(request, env);
+        }
+        if (url.pathname === '/api/cracking-dictionary/contribute' && request.method === 'POST') {
+            return contributeCracking(request,env,{session:permissionSession,hasScope,json:jsonResponse});
         }
         if (url.pathname.startsWith('/api/cracking-dictionary/')) {
             return handleCrackingDictionary(request,env);
