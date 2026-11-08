@@ -1,0 +1,45 @@
+name: Seed Cracking dictionary v1
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed:
+        description: 'I reviewed the pinned source as a Torn game dictionary'
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: cracking-dictionary-seed-v1
+  cancel-in-progress: false
+jobs:
+  seed:
+    if: inputs.reviewed
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.CRACKING_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CRACKING_R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: ${{ vars.CRACKING_R2_ENDPOINT }}
+      R2_BUCKET: ${{ vars.CRACKING_R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build dictionary shards
+        run: |
+          curl --fail --silent --show-error --location 'https://raw.githubusercontent.com/Considious/Torn-Scripts/f21cb04be5f3558443957169c455cb39adb26009/Torn_Cracking_Combined_Passwords.txt' --output "$RUNNER_TEMP/torn-cracking.txt"
+          node workers/contribution/prepare-cracking-dictionary.mjs "$RUNNER_TEMP/torn-cracking.txt" "$RUNNER_TEMP/shards"
+      - name: Publish private R2 objects
+        run: |
+          set -euo pipefail
+          : "${R2_ENDPOINT:?Configure CRACKING_R2_ENDPOINT}"
+          : "${R2_BUCKET:?Configure CRACKING_R2_BUCKET}"
+          prefix='crime-dictionaries/cracking/v1/'
+          existing="$(aws --endpoint-url "$R2_ENDPOINT" s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix "$prefix" --max-keys 1 --query KeyCount --output text)"
+          if [ "$existing" != 0 ]; then
+            echo 'Dictionary v1 already contains objects. Refusing to overwrite it.'
+            exit 1
+          fi
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp "$RUNNER_TEMP/shards/$prefix" "s3://$R2_BUCKET/$prefix" --recursive --only-show-errors --content-type application/json
