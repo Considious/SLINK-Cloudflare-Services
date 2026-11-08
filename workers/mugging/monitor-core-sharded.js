@@ -431,12 +431,14 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
     const allTargets = shards.flatMap(shard => Object.values(shard.targets || {}));
     let estimable = 0;
     const excluded = { invalid_or_self:0, no_estimate:0, federal:0, timed_unavailable:0, mug_cooldown:0, fair_fight_range:0 };
+    const previous = new Set((Array.isArray(input.exclude_target_ids) ? input.exclude_target_ids : []).slice(0, 100).map(positiveInteger).filter(Boolean));
     const candidates = [], unchecked = [];
     for (const target of allTargets) {
         const id = positiveInteger(target?.id);
         const targetBattleStats = finitePositive(target?.battle_stats_estimate);
         if (!id || id === userId) { excluded.invalid_or_self++; continue; }
         if (targetBattleStats !== null) estimable++;
+        if (previous.has(id)) continue;
         const state = String(target?.status_state || 'Unknown');
         if (/federal/i.test(state)) { excluded.federal++; continue; }
         const statusUntilSeconds = normalizeUnixSeconds(target?.status_until);
@@ -508,19 +510,20 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
     const limit = boundedInteger(input.limit, apiBudget * 4, 1, 40);
     await ensureShardedStorage(env.MUGGING_BUCKET, now);
     const minuteSlot = Math.floor(now / 60_000);
-    const startShard = stableHash(`${clientId}:${minuteSlot}`) % STATE_SHARD_COUNT;
+    const startShard = (stableHash(clientId) % STATE_SHARD_COUNT + minuteSlot) % STATE_SHARD_COUNT;
     let selectedShard = startShard;
     let shard = await loadStateShard(env.MUGGING_BUCKET, selectedShard);
     for (let offset = 1; offset < STATE_SHARD_COUNT && !Object.keys(shard.targets || {}).length; offset++) {
         selectedShard = (startShard + offset) % STATE_SHARD_COUNT;
         shard = await loadStateShard(env.MUGGING_BUCKET, selectedShard);
     }
-    const candidates = [];
+    const candidates = [], estimateTasks = [];
     for (const target of Object.values(shard.targets || {})) {
         const id = positiveInteger(target?.id);
         if (!id || id === userId) continue;
         const state = String(target?.status_state || 'Unknown');
         if (/federal/i.test(state)) continue;
+        if (finitePositive(target.battle_stats_estimate) === null) estimateTasks.push({ player_id:id, needs_estimate:true, order:stableHash(`${clientId}:${minuteSlot}:${id}`) });
         const statusUntilMs = normalizeUnixSeconds(target?.status_until) * 1000;
         const timedUntil = /hospital|jail|travel/i.test(state) ? statusUntilMs : 0;
         const freeAt = Math.max(0, Number(target?.free_at) || 0);
@@ -542,6 +545,7 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
         api_budget_per_minute:apiBudget,
         personal_assignments_allowed:active,
         shard:selectedShard,
+        estimate_tasks:estimateTasks.sort((a,b)=>a.order-b.order||a.player_id-b.player_id).slice(0,200).map(({player_id, needs_estimate})=>({player_id,needs_estimate})),
         tasks:candidates.slice(0, limit).map(row => ({
             kind:'player.status',
             needs_estimate:finitePositive(row.target.battle_stats_estimate)===null,
