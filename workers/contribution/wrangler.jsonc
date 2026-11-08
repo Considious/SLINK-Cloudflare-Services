@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
   "vars": {
+    "CRACKING_CONTRIBUTIONS": "on",
     "FF_BACKUP_ENABLED": "false",
     "FF_BACKUP_DAILY_ROWS": "20000",
     "FF_BACKUP_SNAPSHOTS": "false",
@@ -22,6 +23,10 @@
     {
       "binding": "USER_BACKUPS",
       "bucket_name": "slink-mugging-data"
+    },
+    {
+      "binding": "CRACKING_DICTIONARY",
+      "bucket_name": "slink-cracking-dictionary"
     }
   ],
   "secrets": {
