@@ -1,3 +1,4 @@
+import {collectRankedArchive,readRankedArchive} from './ranked-archive.js';
 import {REGISTRY,METRICS,VERSION,WorkError,need,interval,iso,finite,overlap,parseArmory,buildReport,validatePair,csv} from './model.js';
 const PREFIX='/api/officer-work',LEASE=300000,MAX_FAILURES=6;
 const originOK=o=>!o||['https://sharedliveintelligencenetwork.app','https://slink-website.richard-johnson554.workers.dev'].includes(o);
@@ -56,6 +57,7 @@ export async function handleOfficerWork(request,env,ctx,deps){const url=new URL(
   if(liveKey){need(/^[a-zA-Z0-9]{16}$/.test(liveKey),'INVALID_KEY','Enter a valid Torn key.',401);const actor=await identity(env,deps,liveKey,Number(session.user_id));need(actor.factionId===Number(session.faction_id),'FACTION_CHANGED','Sign in again after changing faction.',403);verified={key:liveKey,actor,c:{id:'session-'+actor.userId,capabilities:JSON.stringify({armory:{ok:true}})}};}
   else verified=await credential(env,deps,session,request.headers.get('X-Officer-Credential'));
   const {c,key,actor}=verified;
+  if(request.method==='GET'&&/^\/ranked-archive(?:\/\d+)?$/.test(path))return json(await readRankedArchive(env,actor,path,url.searchParams),200,origin);
   if(path==='/reindex'&&request.method==='POST'){
    const prefix='factions/'+actor.factionId+'/officer-work/',listed=await bucket(env).list({prefix,limit:1000,...(input.cursor?{cursor:input.cursor}:{})});let restored=0;
    for(const object of listed.objects){if(!object.key.includes('/manifests/'))continue;const m=await get(env,object.key);if(m.status!=='Completed'||m.factionId!==actor.factionId||!idOK(m.id)||!m.dataKey.startsWith(jobRoot(actor.factionId,m.id)))continue;const archived=await get(env,m.dataKey);need(archived.id===m.id&&archived.factionId===actor.factionId,'MANIFEST_MISMATCH','An archive manifest does not match its data.',503);const d=m.definition;
@@ -90,6 +92,17 @@ async function source(env,job,token,progress,key,path,params,field,userId){const
 export async function runOfficerWork(env,deps,scheduledAt=Date.now(),pageRun=null){
  if(!env.PERMISSIONS_DB||!env.USER_BACKUPS)return {disabled:true};
  await ensureOfficerSchema(env);
+ if(!pageRun&&env.RANKED_ARCHIVE_ENABLED==='true'){
+  try{await collectRankedArchive(env,{
+   async verify(credentialId,factionId){
+    const owner=await db(env).prepare('SELECT user_id FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(credentialId,factionId).first();
+    need(owner,'CREDENTIAL_REVOKED','The ranked archive credential is unavailable.',403);
+    return credential(env,deps,{user_id:owner.user_id,faction_id:factionId},credentialId);
+   },
+   request:(key,userId,path,params)=>torn(env,key,userId,path,params),
+   clean:sanitized
+  },scheduledAt);}catch{console.warn('Ranked War archive collection deferred');}
+ }
  await db(env).prepare('DELETE FROM officer_work_rate WHERE minute<?').bind(Math.floor(Date.now()/60000)-10).run();
  let due;try{due=await db(env).prepare("SELECT id FROM officer_work_jobs WHERE ((status='Scheduled' AND next_run<=?) OR (status='Running' AND lease_until<?)) AND "+(pageRun?"id=? AND credential_id=?":"credential_id NOT LIKE 'session-%'")+" ORDER BY scheduled_at LIMIT 4").bind(scheduledAt,scheduledAt,...(pageRun?[pageRun.jobId,pageRun.c.id]:[])).all();}catch(e){if(/no such table/i.test(String(e)))return {setupRequired:true};throw e;}
  for(const {id}of due.results){const token=crypto.randomUUID(),now=Date.now();const job=await db(env).prepare("UPDATE officer_work_jobs SET status='Running',lease_token=?,lease_until=?,attempts=attempts+1,updated_at=? WHERE id=? AND ((status='Scheduled' AND next_run<=?) OR (status='Running' AND lease_until<?)) RETURNING *").bind(token,now+LEASE,now,id,scheduledAt,scheduledAt).first();if(!job)continue;
