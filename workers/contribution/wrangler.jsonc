@@ -7,6 +7,9 @@
   "keep_vars": true,
   "vars": {
     "CRACKING_CONTRIBUTIONS": "on",
+    "RANKED_ARCHIVE_FACTION_ID": "46978",
+    "RANKED_ARCHIVE_CREDENTIAL_ID": "a6d38786-4530-4b49-82a4-c19f20c83b79",
+    "RANKED_ARCHIVE_ENABLED": "true",
     "FF_BACKUP_ENABLED": "false",
     "FF_BACKUP_DAILY_ROWS": "20000",
     "FF_BACKUP_SNAPSHOTS": "false",
