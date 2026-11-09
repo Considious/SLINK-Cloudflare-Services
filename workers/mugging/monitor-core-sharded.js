@@ -419,6 +419,7 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
     if (!env.MUGGING_BUCKET) throw new Error('The MUGGING_BUCKET binding is required.');
     const userBattleStats = finitePositive(input.user_battle_stats ?? input.userBattleStats);
     if (userBattleStats === null) throw new Error('A positive requesting-user battle-stat total is required.');
+    const verify = input.verify_fair_fight === true;
     const minimum = boundedNumber(input.min_fair_fight ?? input.minFairFight, 1, 1, 3);
     const maximum = boundedNumber(input.max_fair_fight ?? input.maxFairFight, 3, 1, 3);
     if (minimum > maximum) throw new Error('Minimum Fair Fight cannot be higher than maximum Fair Fight.');
@@ -447,13 +448,16 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
         if (statusBlockedUntil > now) { excluded.timed_unavailable++; continue; }
         if (freeAt > now) { excluded.mug_cooldown++; continue; }
         if (targetBattleStats === null) { excluded.no_estimate++; unchecked.push({target,id,statusUntilSeconds,order:stableHash(`${userId}:${Math.floor(now/60000)}:${id}`)}); continue; }
-        const roughFairFight = roughFairFightValue(userBattleStats, targetBattleStats);
-        if (roughFairFight < minimum || roughFairFight > maximum) { excluded.fair_fight_range++; continue; }
+        // In verified mode the total-stat ratio is only a candidate ordering hint.
+        const roughFairFight = verify ? 1 + (8 / 3) * Math.sqrt(targetBattleStats / userBattleStats) : roughFairFightValue(userBattleStats, targetBattleStats);
+        if (!verify && (roughFairFight < minimum || roughFairFight > maximum)) { excluded.fair_fight_range++; continue; }
         const priorityMultiplier = Math.max(0.05, Number(target?.priority_multiplier) || 1);
         const score = Number((priorityMultiplier * roughFairFight).toFixed(6));
         candidates.push({ target, id, targetBattleStats, roughFairFight, priorityMultiplier, score, statusUntilSeconds });
     }
     candidates.sort((left, right) =>
+        (verify ? Math.max(minimum-left.roughFairFight, left.roughFairFight-maximum, 0) -
+            Math.max(minimum-right.roughFairFight, right.roughFairFight-maximum, 0) : 0) ||
         right.score - left.score ||
         right.roughFairFight - left.roughFairFight ||
         right.targetBattleStats - left.targetBattleStats ||
@@ -479,13 +483,13 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
                 description:String(row.target?.status_description || ''),
                 until:row.statusUntilSeconds
             },
-            fair_fight:row.roughFairFight,
-            rough_fair_fight:row.roughFairFight,
+            fair_fight:verify?null:row.roughFairFight,
+            rough_fair_fight:verify?null:row.roughFairFight,
             battle_stats_estimate:row.targetBattleStats,
             battle_stats_checked_at:Math.max(0, Number(row.target?.battle_stats_checked_at) || 0),
-            estimate_kind:'rough',
+            estimate_kind:verify?'unchecked':'rough',
             estimate_source:String(row.target?.battle_stats_source || 'cached'),
-            confidence:assignmentConfidence(row.target, now),
+            confidence:verify?'FF unverified':assignmentConfidence(row.target, now),
             priority_multiplier:row.priorityMultiplier,
             mug_count_7d:Math.max(0, Number(row.target?.mug_count_7d) || 0),
             mug_count_30d:Math.max(0, Number(row.target?.mug_count_30d) || 0),
