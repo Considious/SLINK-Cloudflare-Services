@@ -1,0 +1,28 @@
+{
+  "name": "slink-ranked-gear-preview",
+  "main": "index.mjs",
+  "compatibility_date": "2026-11-08",
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "vars": {
+    "PREVIEW_HTTP_ENABLED": "false",
+    "LIVE_SCAN_ENABLED": "false",
+    "AUCTION_START_UNIX": "SET_ARCHIVE_START_UNIX"
+  },
+  "d1_databases": [
+    {
+      "binding": "RANKED_DB",
+      "database_name": "slink-ranked-gear-preview",
+      "database_id": "SET_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RANKED_SNAPSHOT",
+      "bucket_name": "slink-ranked-gear-preview"
+    }
+  ]
+}
