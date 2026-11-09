@@ -18,11 +18,15 @@ Faction API Access checks run before collection. Revoking the credential or
 switching the flag off stops further collection without deleting existing records.
 Viewer sign-in uses normal Officer Work access and does not require storing a key.
 
-Backfill walks the faction's Ranked War history, processes at most two war
-reports per tick, and stores the history entry and available official report
+Backfill walks Torn's global Ranked War history, processes at most two war
+reports per minute tick (five Torn calls including authentication and listing),
+and stores the history entry and available official report
 payload under a faction-and-war-scoped R2 key. D1 holds a searchable index
 and the checkpoint. Transient failures pause collection without losing saved
 records. After reaching the end of history, the Worker checks for new or updated
 completed wars approximately twice daily. Active wars and unavailable historical
 reports are not counted as complete. The 30-day summary uses archived completion
-dates and flags incomplete or stale coverage.
+dates and flags incomplete or stale coverage. The website displays both
+opponents, including Torn's reported before/after ranks when available, and
+exports the currently loaded, filtered rows as CSV. The configured faction
+controls officer access and the collector credential, not which wars are stored.

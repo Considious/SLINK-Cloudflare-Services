@@ -18,10 +18,10 @@ test('archive checkpoints, retains report fields, isolates factions and refreshe
  let rejectOnce=true;
  const deps={verify:async()=>({key:'test',actor:{factionId:10,userId:5}}),clean:v=>v,request:async(_key,_user,path)=>{
   calls.push(path);
-  if(path.endsWith('/rankedwars'))return {data:{rankedwars:[7,6,5].map(id=>({id,start,end,target:400}))}};
+  if(path.endsWith('/warfareranked'))return {data:{warfareranked:[7,6,5].map(id=>({id,start,end,target:400}))}};
   const warId=Number(path.split('/')[3]);
   if(warId===6&&rejectOnce){rejectOnce=false;throw Error('temporary');}
-  return {data:{rankedwarreport:{id:warId,start,end,winner:warId===5?20:10,forfeit:false,factions:[{id:10,score:4,members:[],rewards:{points:5}},{id:20,name:'Opponent',score:2,members:[]}]}}};
+  return {data:{rankedwarreport:{id:warId,start,end,winner:warId===5?20:30,forfeit:warId===5,factions:[{id:30,name:'Faction A',score:4,members:[],rewards:{points:5}},{id:20,name:'Faction B',score:2,members:[]}]}}};
  }};
  const list=()=>readRankedArchive(env,{factionId:10},'/ranked-archive',new URLSearchParams(),now);
  await collectRankedArchive(env,deps,now);
@@ -30,11 +30,13 @@ test('archive checkpoints, retains report fields, isolates factions and refreshe
  await collectRankedArchive(env,deps,now+300000);
  assert.deepEqual((await list()).rows.map(w=>w.warId),[7,6,5]);
  assert.equal((await list()).backfilled,true);
- assert.equal((await list()).analysis.wins,2);
+ assert.equal((await list()).analysis.forfeits,1);
+ assert.equal((await list()).rows[0].factionA,'Faction A');
+ assert.equal((await list()).rows[0].factionB,'Faction B');
  const stored=await readRankedArchive(env,{factionId:10},'/ranked-archive/7',new URLSearchParams());
  assert.equal(stored.listing.target,400);
  assert.equal(stored.report.rankedwarreport.factions[0].rewards.points,5);
- await assert.rejects(readRankedArchive(env,{factionId:11},'/ranked-archive/7',new URLSearchParams()),{code:'WAR_NOT_ARCHIVED'});
+ await assert.rejects(readRankedArchive(env,{factionId:11},'/ranked-archive/7',new URLSearchParams()),{code:'ARCHIVE_FACTION_REQUIRED'});
  const count=calls.length;await collectRankedArchive(env,deps,now+600000);
  assert.equal(calls.length,count);
 });
