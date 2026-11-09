@@ -9,7 +9,9 @@ async function setup(db){
  if(!schema.has(db))schema.set(db,db.batch([
   db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_global_state(faction_id INTEGER PRIMARY KEY, cursor TEXT, position INTEGER NOT NULL DEFAULT 0, backfilled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER, next_run INTEGER NOT NULL DEFAULT 0, lease TEXT, lease_until INTEGER NOT NULL DEFAULT 0, error TEXT)'),
   db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_global_wars(faction_id INTEGER NOT NULL, war_id INTEGER NOT NULL, started INTEGER NOT NULL, ended INTEGER NOT NULL, summary TEXT NOT NULL, PRIMARY KEY(faction_id,war_id))'),
-  db.prepare('CREATE INDEX IF NOT EXISTS officer_ranked_global_wars_by_end ON officer_ranked_global_wars(faction_id,ended DESC,war_id DESC)')
+  db.prepare('CREATE INDEX IF NOT EXISTS officer_ranked_global_wars_by_end ON officer_ranked_global_wars(faction_id,ended DESC,war_id DESC)'),
+  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_helpers(faction_id INTEGER NOT NULL,user_id INTEGER NOT NULL,credential_id TEXT NOT NULL,PRIMARY KEY(faction_id,user_id))'),
+  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_helper_budget(user_id INTEGER PRIMARY KEY,started_at INTEGER NOT NULL)')
  ]).catch(e=>{schema.delete(db);throw e;}));
  await schema.get(db);
 }
@@ -60,14 +62,46 @@ export async function readRankedArchive(env,actor,path,params,now=Date.now()){
  const last=rows[99];
  return {rows:rows.slice(0,100).map(r=>JSON.parse(r.summary)),next:rows.length>100?`${last.ended}:${last.war_id}`:null,updatedAt:state?.updated_at??null,backfilled:Boolean(state?.backfilled),paused:Boolean(state?.error),analysis:{from:cutoff,to,wars:recent.wars,forfeits:recent.forfeits??0,averageScoreMargin:recent.averageScoreMargin,coverageComplete:Boolean(state?.backfilled&&!state?.error&&now-state.updated_at<INTERVAL+60*60000)}};
 }
-export async function collectRankedArchive(env,{verify,request,clean},now=Date.now()){
- const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),credentialId=env.RANKED_ARCHIVE_CREDENTIAL_ID;
+export async function rankedHelp(env,actor,credential,enabled){
+ const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),db=env.PERMISSIONS_DB;
+ need(factionId&&actor.factionId===factionId,'ARCHIVE_FACTION_REQUIRED','Backfill assistance is restricted to the archive faction.',403);
+ await setup(db);
+ if(enabled===true){
+  need(credential&&!credential.startsWith('session-'),'SAVED_KEY_REQUIRED','Save an encrypted Officer Work key before volunteering.',400);
+  await db.prepare('INSERT INTO officer_ranked_helpers VALUES(?,?,?) ON CONFLICT(faction_id,user_id) DO UPDATE SET credential_id=excluded.credential_id').bind(factionId,actor.userId,credential).run();
+ }else if(enabled===false)await db.prepare('DELETE FROM officer_ranked_helpers WHERE faction_id=? AND user_id=?').bind(factionId,actor.userId).run();
+ const row=await db.prepare('SELECT credential_id FROM officer_ranked_helpers WHERE faction_id=? AND user_id=?').bind(factionId,actor.userId).first();
+ return {enabled:Boolean(row)};
+}
+export async function collectRankedArchive(env,deps,now=Date.now()){
+ const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),primary=env.RANKED_ARCHIVE_CREDENTIAL_ID;
+ if(env.RANKED_ARCHIVE_ENABLED!=='true'||!factionId||!primary)return;
+ // Standalone callers can run one slice; the Worker supplies the consented pool.
+ if(!deps.pool)return collectSlice(env,deps,now,primary);
+ const db=env.PERMISSIONS_DB;await setup(db);
+ const state=await db.prepare('SELECT backfilled,next_run FROM officer_ranked_global_state WHERE faction_id=?').bind(factionId).first();
+ if(state?.next_run>now)return;
+ const pool=await deps.pool(factionId,primary,Boolean(state?.backfilled));
+ for(const entry of pool){
+  const stamp=Date.now();
+  // One slice per officer per rolling minute, even across duplicate cron runs.
+  const claim=await db.prepare('INSERT INTO officer_ranked_helper_budget VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET started_at=excluded.started_at WHERE officer_ranked_helper_budget.started_at<=? RETURNING user_id').bind(entry.user_id,stamp,stamp-60000).first();
+  if(!claim)continue;
+  let outcome;
+  try{outcome=await collectSlice(env,deps,now,entry.id,true);}
+  finally{await db.prepare('UPDATE officer_ranked_helper_budget SET started_at=? WHERE user_id=? AND started_at=?').bind(Date.now(),entry.user_id,stamp).run();}
+  if(outcome==='stop')break;
+ }
+}
+async function collectSlice(env,{verify,request,clean},now,credentialId,pooled=false){
+ const factionId=id(env.RANKED_ARCHIVE_FACTION_ID);
  if(env.RANKED_ARCHIVE_ENABLED!=='true'||!factionId||!credentialId)return;
  const db=env.PERMISSIONS_DB;await setup(db);
  await db.prepare('INSERT OR IGNORE INTO officer_ranked_global_state(faction_id) VALUES(?)').bind(factionId).run();
  const lease=crypto.randomUUID();
- const state=await db.prepare('UPDATE officer_ranked_global_state SET lease=?,lease_until=? WHERE faction_id=? AND next_run<=? AND lease_until<=? RETURNING *').bind(lease,now+300000,factionId,now,now).first();
- if(!state)return;
+ const leaseTime=pooled?Date.now():now;
+ const state=await db.prepare('UPDATE officer_ranked_global_state SET lease=?,lease_until=? WHERE faction_id=? AND next_run<=? AND lease_until<=? RETURNING *').bind(lease,leaseTime+300000,factionId,now,leaseTime).first();
+ if(!state)return 'stop';
  try{
   const verified=await verify(credentialId,factionId);
   const {actor,key}=verified;
@@ -77,7 +111,7 @@ export async function collectRankedArchive(env,{verify,request,clean},now=Date.n
   const list=history.data?.warfareranked;
   need(Array.isArray(list)&&list.length<=PAGE,'TORN_SCHEMA','Torn returned an invalid ranked war history page.',503);
   need(list.length||!history.data?._metadata?.links?.next,'TORN_SCHEMA','Torn returned an empty page with a continuation.',503);
-  let position=state.position,nextPage=cursor,backfilled=state.backfilled,next=now+60000,checked=0;
+  let position=state.position,nextPage=cursor,backfilled=state.backfilled,next=pooled&&!state.backfilled?now:now+60000,checked=0;
   // At most five Torn calls per scheduled slice: two credential checks,
   // one history page and two reports. A single leased slice runs at a time.
   while(position<list.length&&checked<2){
@@ -102,8 +136,11 @@ export async function collectRankedArchive(env,{verify,request,clean},now=Date.n
    else if(backfilled&&cursor.from!=null)nextPage={...nextPage,from:cursor.from};
   }
   await db.prepare('UPDATE officer_ranked_global_state SET cursor=?,position=?,backfilled=?,updated_at=?,next_run=?,lease=NULL,lease_until=0,error=NULL WHERE faction_id=? AND lease=?').bind(nextPage?JSON.stringify(nextPage):null,position,backfilled,now,next,factionId,lease).run();
+  if(next>now)return 'stop';
  }catch(error){
   const delay=Math.max(300000,Number(error?.retryAfter||0)*1000,error?.status===403?3600000:0);
-  await db.prepare('UPDATE officer_ranked_global_state SET next_run=?,lease=NULL,lease_until=0,error=? WHERE faction_id=? AND lease=?').bind(now+delay,error instanceof WorkError?error.code:'ARCHIVE_RETRY',factionId,lease).run();
+  const keyFailure=pooled&&(error?.status===403||error?.status===401||error?.status===429||['TORN_5','RATE_BUDGET'].includes(error?.code));
+  await db.prepare('UPDATE officer_ranked_global_state SET next_run=?,lease=NULL,lease_until=0,error=? WHERE faction_id=? AND lease=?').bind(keyFailure?now:now+delay,error instanceof WorkError?error.code:'ARCHIVE_RETRY',factionId,lease).run();
+  if(!keyFailure)return 'stop';
  }
 }

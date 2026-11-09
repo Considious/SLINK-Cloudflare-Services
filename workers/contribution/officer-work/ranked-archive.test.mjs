@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {collectRankedArchive,readRankedArchive} from './ranked-archive.js';
+import {collectRankedArchive,readRankedArchive,rankedHelp} from './ranked-archive.js';
 
 test('archive checkpoints, retains report fields, isolates factions and refreshes on schedule',async()=>{
  const sqlite=new DatabaseSync(':memory:');
@@ -39,4 +39,19 @@ test('archive checkpoints, retains report fields, isolates factions and refreshe
  await assert.rejects(readRankedArchive(env,{factionId:11},'/ranked-archive/7',new URLSearchParams()),{code:'ARCHIVE_FACTION_REQUIRED'});
  const count=calls.length;await collectRankedArchive(env,deps,now+600000);
  assert.equal(calls.length,count);
+ const helper={userId:8,factionId:10};
+ assert.deepEqual(await rankedHelp(env,helper,'helper-key'),{enabled:false});
+ await assert.rejects(rankedHelp(env,helper,'session-8',true),{code:'SAVED_KEY_REQUIRED'});
+ assert.deepEqual(await rankedHelp(env,helper,'helper-key',true),{enabled:true});
+ sqlite.exec('UPDATE officer_ranked_global_state SET next_run=0,backfilled=0');
+ const users=[];
+ const pooled={...deps,pool:async()=>[{id:'fixture',user_id:5},{id:'helper-key',user_id:8}],verify:async credential=>({key:'test',actor:{factionId:10,userId:credential==='fixture'?5:8}}),request:async(key,user,path)=>{
+  users.push(user);
+  if(path.endsWith('/warfareranked'))return {data:{warfareranked:[12,11,10].map(id=>({id,start,end}))}};
+  return deps.request(key,user,path);
+ }};
+ await collectRankedArchive(env,pooled,now+700000);
+ assert.deepEqual(users,[5,5,5,8,8]);
+ assert.equal((await list()).rows.length,6);
+ assert.deepEqual(await rankedHelp(env,helper,'helper-key',false),{enabled:false});
 });

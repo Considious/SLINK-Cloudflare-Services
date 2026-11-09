@@ -1,4 +1,4 @@
-import {collectRankedArchive,readRankedArchive} from './ranked-archive.js';
+import {collectRankedArchive,readRankedArchive,rankedHelp} from './ranked-archive.js';
 import {REGISTRY,METRICS,VERSION,WorkError,need,interval,iso,finite,overlap,parseArmory,buildReport,validatePair,csv} from './model.js';
 const PREFIX='/api/officer-work',LEASE=300000,MAX_FAILURES=6;
 const originOK=o=>!o||['https://sharedliveintelligencenetwork.app','https://slink-website.richard-johnson554.workers.dev'].includes(o);
@@ -57,6 +57,10 @@ export async function handleOfficerWork(request,env,ctx,deps){const url=new URL(
   if(liveKey){need(/^[a-zA-Z0-9]{16}$/.test(liveKey),'INVALID_KEY','Enter a valid Torn key.',401);const actor=await identity(env,deps,liveKey,Number(session.user_id));need(actor.factionId===Number(session.faction_id),'FACTION_CHANGED','Sign in again after changing faction.',403);verified={key:liveKey,actor,c:{id:'session-'+actor.userId,capabilities:JSON.stringify({armory:{ok:true}})}};}
   else verified=await credential(env,deps,session,request.headers.get('X-Officer-Credential'));
   const {c,key,actor}=verified;
+  if(path==='/ranked-archive/help'&&['GET','POST'].includes(request.method)){
+   if(request.method==='POST')need(typeof input.enabled==='boolean','INVALID_CHOICE','Choose whether to share backfill API capacity.');
+   return json(await rankedHelp(env,actor,c.id,input.enabled),200,origin);
+  }
   if(request.method==='GET'&&/^\/ranked-archive(?:\/\d+)?$/.test(path))return json(await readRankedArchive(env,actor,path,url.searchParams),200,origin);
   if(path==='/reindex'&&request.method==='POST'){
    const prefix='factions/'+actor.factionId+'/officer-work/',listed=await bucket(env).list({prefix,limit:1000,...(input.cursor?{cursor:input.cursor}:{})});let restored=0;
@@ -94,6 +98,12 @@ export async function runOfficerWork(env,deps,scheduledAt=Date.now(),pageRun=nul
  await ensureOfficerSchema(env);
  if(!pageRun&&env.RANKED_ARCHIVE_ENABLED==='true'){
   try{await collectRankedArchive(env,{
+   async pool(factionId,primary,finished){
+    const owner=await db(env).prepare('SELECT id,user_id FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(primary,factionId).first();
+    if(finished)return owner?[owner]:[];
+    const helpers=await db(env).prepare('SELECT c.id,c.user_id FROM officer_ranked_helpers h JOIN officer_work_credentials c ON c.id=h.credential_id AND c.user_id=h.user_id AND c.faction_id=h.faction_id LEFT JOIN officer_ranked_helper_budget b ON b.user_id=c.user_id WHERE h.faction_id=? AND c.revoked=0 AND c.id<>? ORDER BY coalesce(b.started_at,0),c.user_id LIMIT 5').bind(factionId,primary).all();
+    return [...(owner?[owner]:[]),...helpers.results];
+   },
    async verify(credentialId,factionId){
     const owner=await db(env).prepare('SELECT user_id FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(credentialId,factionId).first();
     need(owner,'CREDENTIAL_REVOKED','The ranked archive credential is unavailable.',403);

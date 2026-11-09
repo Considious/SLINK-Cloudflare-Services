@@ -30,3 +30,9 @@ dates and flags incomplete or stale coverage. The website displays both
 opponents, including Torn's reported before/after ranks when available, and
 exports the currently loaded, filtered rows as CSV. The configured faction
 controls officer access and the collector credential, not which wars are stored.
+
+Officers with an encrypted saved key can opt in or out under Ranked War Archive
+→ Check backfill contribution setting. Saving a key alone never opts in. The
+configured credential and up to five opted-in helpers share the same checkpoint.
+Each officer gets at most five archive calls per slice, followed by a one-minute
+cooldown. Helper keys are not used for the routine refresh after backfill.
