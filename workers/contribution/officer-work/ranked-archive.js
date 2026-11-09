@@ -11,7 +11,13 @@ async function setup(db){
   db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_global_wars(faction_id INTEGER NOT NULL, war_id INTEGER NOT NULL, started INTEGER NOT NULL, ended INTEGER NOT NULL, summary TEXT NOT NULL, PRIMARY KEY(faction_id,war_id))'),
   db.prepare('CREATE INDEX IF NOT EXISTS officer_ranked_global_wars_by_end ON officer_ranked_global_wars(faction_id,ended DESC,war_id DESC)'),
   db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_helpers(faction_id INTEGER NOT NULL,user_id INTEGER NOT NULL,credential_id TEXT NOT NULL,PRIMARY KEY(faction_id,user_id))'),
-  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_helper_budget(user_id INTEGER PRIMARY KEY,started_at INTEGER NOT NULL)')
+  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_archive_upgrade(version INTEGER PRIMARY KEY)'),
+  db.prepare('UPDATE officer_ranked_global_state SET cursor=NULL,position=0,backfilled=0,next_run=0,lease=NULL,lease_until=0,error=NULL WHERE NOT EXISTS(SELECT 1 FROM officer_ranked_archive_upgrade WHERE version=2)'),
+  db.prepare('INSERT OR IGNORE INTO officer_ranked_archive_upgrade VALUES(2)'),
+  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_calls(user_id INTEGER NOT NULL, at INTEGER NOT NULL)'),
+  db.prepare('CREATE INDEX IF NOT EXISTS officer_ranked_calls_user_time ON officer_ranked_calls(user_id,at)'),
+  db.prepare('CREATE INDEX IF NOT EXISTS officer_ranked_calls_time ON officer_ranked_calls(at)'),
+  db.prepare('CREATE TABLE IF NOT EXISTS officer_ranked_key_state(credential_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, verified_at INTEGER, position TEXT, blocked_until INTEGER NOT NULL DEFAULT 0, error TEXT)')
  ]).catch(e=>{schema.delete(db);throw e;}));
  await schema.get(db);
 }
@@ -35,8 +41,22 @@ function nextCursor(raw,current){
  for(const name of ['from','to','offset'])if(url.searchParams.has(name)){
   const value=url.searchParams.get(name);need(/^\d{1,14}$/.test(value),'UNSAFE_PAGINATION','Torn returned an invalid global history cursor.',503);out[name]=Number(value);
  }
- need(Object.keys(out).length&&JSON.stringify(out)!==JSON.stringify(current),'UNSAFE_PAGINATION','Torn did not advance global history.',503);
- return out;
+ const next={...(current.from!=null?{from:current.from}:{}),to:out.to??current.to,...(out.offset!=null?{offset:out.offset}:{})};
+ need(Object.keys(out).length&&next.to<=current.to&&(next.to<current.to||(next.offset??0)>(current.offset??0)),'UNSAFE_PAGINATION','Torn did not advance global history.',503);
+ return next;
+}
+function olderCursor(list,cursor){
+ if(!list.length)return null;
+ const starts=list.map(row=>epoch(row?.start));
+ need(starts.every(Boolean)&&starts.every(start=>start<=cursor.to),'TORN_PAGINATION','Torn did not honor the ranked war history date window.',503);
+ const oldest=Math.min(...starts);
+ const lower=cursor.from!=null?{from:cursor.from}:{};
+ if(oldest===cursor.to){
+  need(list.length<PAGE,'TORN_PAGINATION','Torn returned a full ranked war history page at one timestamp without a continuation.',503);
+  if(oldest<=1||oldest===cursor.from)return null;
+  return {...lower,to:oldest-1};
+ }
+ return {...lower,to:oldest};
 }
 export async function readRankedArchive(env,actor,path,params,now=Date.now()){
  const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),db=env.PERMISSIONS_DB;
@@ -55,12 +75,12 @@ export async function readRankedArchive(env,actor,path,params,now=Date.now()){
  const filters=['faction_id=?'],values=[factionId];
  if(parts){filters.push('(ended<? OR (ended=? AND war_id<?))');values.push(Number(parts[1]),Number(parts[1]),Number(parts[2]));}
  const rows=(await db.prepare('SELECT war_id,ended,summary FROM officer_ranked_global_wars WHERE '+filters.join(' AND ')+' ORDER BY ended DESC,war_id DESC LIMIT 101').bind(...values).all()).results;
- const state=await db.prepare('SELECT backfilled,updated_at,error FROM officer_ranked_global_state WHERE faction_id=?').bind(factionId).first();
+ const state=await db.prepare('SELECT backfilled,updated_at,error,next_run FROM officer_ranked_global_state WHERE faction_id=?').bind(factionId).first();
  const cutoff=Math.floor(now/1000)-30*86400;
  const to=Math.floor(now/1000);
  const recent=await db.prepare("SELECT count(*) AS wars, sum(CASE WHEN json_extract(summary,'$.forfeit')='Yes' THEN 1 ELSE 0 END) AS forfeits, avg(abs(json_extract(summary,'$.scoreA')-json_extract(summary,'$.scoreB'))) AS averageScoreMargin FROM officer_ranked_global_wars WHERE faction_id=? AND ended>=? AND ended<=?").bind(factionId,cutoff,to).first();
  const last=rows[99];
- return {rows:rows.slice(0,100).map(r=>JSON.parse(r.summary)),next:rows.length>100?`${last.ended}:${last.war_id}`:null,updatedAt:state?.updated_at??null,backfilled:Boolean(state?.backfilled),paused:Boolean(state?.error),analysis:{from:cutoff,to,wars:recent.wars,forfeits:recent.forfeits??0,averageScoreMargin:recent.averageScoreMargin,coverageComplete:Boolean(state?.backfilled&&!state?.error&&now-state.updated_at<INTERVAL+60*60000)}};
+ return {rows:rows.slice(0,100).map(r=>JSON.parse(r.summary)),next:rows.length>100?`${last.ended}:${last.war_id}`:null,updatedAt:state?.updated_at??null,backfilled:Boolean(state?.backfilled),paused:Boolean(state?.error),errorCode:state?.error??null,retryAt:state?.error?state.next_run||null:null,analysis:{from:cutoff,to,wars:recent.wars,forfeits:recent.forfeits??0,averageScoreMargin:recent.averageScoreMargin,coverageComplete:Boolean(state?.backfilled&&!state?.error&&now-state.updated_at<INTERVAL+60*60000)}};
 }
 export async function rankedHelp(env,actor,credential,enabled){
  const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),db=env.PERMISSIONS_DB;
@@ -82,14 +102,12 @@ export async function collectRankedArchive(env,deps,now=Date.now()){
  const state=await db.prepare('SELECT backfilled,next_run FROM officer_ranked_global_state WHERE faction_id=?').bind(factionId).first();
  if(state?.next_run>now)return;
  const pool=await deps.pool(factionId,primary,Boolean(state?.backfilled));
+ await db.prepare('DELETE FROM officer_ranked_calls WHERE at<=?').bind(Date.now()-60000).run();
+ if(!pool.length){
+  await db.prepare("INSERT INTO officer_ranked_global_state(faction_id,next_run,error) VALUES(?,?,'ARCHIVE_NO_CREDENTIAL') ON CONFLICT(faction_id) DO UPDATE SET next_run=excluded.next_run,error=excluded.error WHERE lease_until<=?").bind(factionId,now+300000,Date.now()).run();
+ }
  for(const entry of pool){
-  const stamp=Date.now();
-  // One slice per officer per rolling minute, even across duplicate cron runs.
-  const claim=await db.prepare('INSERT INTO officer_ranked_helper_budget VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET started_at=excluded.started_at WHERE officer_ranked_helper_budget.started_at<=? RETURNING user_id').bind(entry.user_id,stamp,stamp-60000).first();
-  if(!claim)continue;
-  let outcome;
-  try{outcome=await collectSlice(env,deps,now,entry.id,true);}
-  finally{await db.prepare('UPDATE officer_ranked_helper_budget SET started_at=? WHERE user_id=? AND started_at=?').bind(Date.now(),entry.user_id,stamp).run();}
+  const outcome=await collectSlice(env,deps,now,entry.id,true);
   if(outcome==='stop')break;
  }
 }
@@ -103,44 +121,59 @@ async function collectSlice(env,{verify,request,clean},now,credentialId,pooled=f
  const state=await db.prepare('UPDATE officer_ranked_global_state SET lease=?,lease_until=? WHERE faction_id=? AND next_run<=? AND lease_until<=? RETURNING *').bind(lease,leaseTime+300000,factionId,now,leaseTime).first();
  if(!state)return 'stop';
  try{
-  const verified=await verify(credentialId,factionId);
+  const limitedRequest=pooled?async(key,userId,path,params)=>{
+   const at=Date.now();
+   const slot=await db.prepare('INSERT INTO officer_ranked_calls(user_id,at) SELECT ?,? WHERE (SELECT count(*) FROM officer_ranked_calls WHERE user_id=? AND at>?)<5 RETURNING at').bind(userId,at,userId,at-60000).first();
+   if(!slot)throw new WorkError('ARCHIVE_MINUTE_BUDGET','Ranked War archive has used this officer’s rolling minute allowance.',429);
+   return request(key,userId,path,params);
+  }:request;
+  const verified=await verify(credentialId,factionId,limitedRequest);
+  if(verified.blockedUntil){
+   await db.prepare('UPDATE officer_ranked_global_state SET lease=NULL,lease_until=0,error=? WHERE faction_id=? AND lease=?').bind(verified.error,factionId,lease).run();
+   return;
+  }
   const {actor,key}=verified;
   need(actor.factionId===factionId,'FACTION_CHANGED','The archive credential does not match the archive faction.',403);
   const cursor=state.cursor?JSON.parse(state.cursor):{to:Math.floor(now/1000),...(state.backfilled?{from:Math.floor(now/1000)-30*86400}:{})};
-  const history=await request(key,actor.userId,'/v2/faction/warfareranked',{...cursor,sort:'DESC',limit:PAGE});
+  const history=await limitedRequest(key,actor.userId,'/v2/faction/warfareranked',{...cursor,sort:'DESC',limit:PAGE});
   const list=history.data?.warfareranked;
   need(Array.isArray(list)&&list.length<=PAGE,'TORN_SCHEMA','Torn returned an invalid ranked war history page.',503);
   need(list.length||!history.data?._metadata?.links?.next,'TORN_SCHEMA','Torn returned an empty page with a continuation.',503);
   let position=state.position,nextPage=cursor,backfilled=state.backfilled,next=pooled&&!state.backfilled?now:now+60000,checked=0;
-  // At most five Torn calls per scheduled slice: two credential checks,
-  // one history page and two reports. A single leased slice runs at a time.
-  while(position<list.length&&checked<2){
+  while(position<list.length&&checked<4-(verified.verificationCalls??2)){
    const listing=list[position],warId=id(listing?.id??listing?.war_id);
    need(warId,'TORN_SCHEMA','Torn returned a war without an ID.',503);
    if(!epoch(listing.end)){position++;continue;}
    const existing=await db.prepare('SELECT war_id FROM officer_ranked_global_wars WHERE faction_id=? AND war_id=?').bind(factionId,warId).first();
    if(!existing){
     checked++;
-    const report=await request(key,actor.userId,`/v2/faction/${warId}/rankedwarreport`,{});
+    const report=await limitedRequest(key,actor.userId,`/v2/faction/${warId}/rankedwarreport`,{});
     const summary=rankedSummary(report.data?.rankedwarreport);
     need(summary?.warId===warId,'TORN_SCHEMA','Torn returned a mismatched or incomplete ranked war report.',503);
     await env.USER_BACKUPS.put(root(factionId)+warId+'.json',JSON.stringify(clean({schema:1,warId,factionId,observedAt:report.observedAt,listing,report:report.data},key)),{httpMetadata:{contentType:'application/json'}});
     await db.prepare('INSERT INTO officer_ranked_global_wars(faction_id,war_id,started,ended,summary) VALUES(?,?,?,?,?) ON CONFLICT(faction_id,war_id) DO UPDATE SET started=excluded.started,ended=excluded.ended,summary=excluded.summary').bind(factionId,warId,summary.start,summary.end,JSON.stringify(summary)).run();
    }
    position++;
+   if(!existing)await db.prepare('UPDATE officer_ranked_global_state SET cursor=?,position=? WHERE faction_id=? AND lease=?').bind(JSON.stringify(cursor),position,factionId,lease).run();
   }
   if(position>=list.length){
-   nextPage=nextCursor(history.data?._metadata?.links?.next,cursor);
+   nextPage=nextCursor(history.data?._metadata?.links?.next,cursor)||olderCursor(list,cursor);
    position=0;
    if(!nextPage){backfilled=1;next=now+INTERVAL;}
-   else if(backfilled&&cursor.from!=null)nextPage={...nextPage,from:cursor.from};
   }
   await db.prepare('UPDATE officer_ranked_global_state SET cursor=?,position=?,backfilled=?,updated_at=?,next_run=?,lease=NULL,lease_until=0,error=NULL WHERE faction_id=? AND lease=?').bind(nextPage?JSON.stringify(nextPage):null,position,backfilled,now,next,factionId,lease).run();
   if(next>now)return 'stop';
  }catch(error){
+  if(error?.code==='ARCHIVE_MINUTE_BUDGET'){
+   await db.prepare('UPDATE officer_ranked_global_state SET lease=NULL,lease_until=0 WHERE faction_id=? AND lease=?').bind(factionId,lease).run();
+   return;
+  }
   const delay=Math.max(300000,Number(error?.retryAfter||0)*1000,error?.status===403?3600000:0);
+  const code=error instanceof WorkError?error.code:'ARCHIVE_RETRY';
   const keyFailure=pooled&&(error?.status===403||error?.status===401||error?.status===429||['TORN_5','RATE_BUDGET'].includes(error?.code));
-  await db.prepare('UPDATE officer_ranked_global_state SET next_run=?,lease=NULL,lease_until=0,error=? WHERE faction_id=? AND lease=?').bind(keyFailure?now:now+delay,error instanceof WorkError?error.code:'ARCHIVE_RETRY',factionId,lease).run();
+  if(keyFailure)await db.prepare('INSERT INTO officer_ranked_key_state(credential_id,revision,blocked_until,error) SELECT id,updated_at,?,? FROM officer_work_credentials WHERE id=? ON CONFLICT(credential_id) DO UPDATE SET revision=excluded.revision,verified_at=NULL,blocked_until=excluded.blocked_until,error=excluded.error').bind(Date.now()+delay,error.code||'ARCHIVE_RETRY',credentialId).run();
+  await db.prepare('UPDATE officer_ranked_global_state SET next_run=?,lease=NULL,lease_until=0,error=? WHERE faction_id=? AND lease=?').bind(keyFailure?now:now+delay,code,factionId,lease).run();
+  console.warn('Ranked War archive paused',{factionId,code,retryAt:new Date(Date.now()+delay).toISOString()});
   if(!keyFailure)return 'stop';
  }
 }

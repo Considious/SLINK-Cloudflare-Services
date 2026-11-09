@@ -1,5 +1,5 @@
-import {collectRankedArchive,readRankedArchive,rankedHelp} from './ranked-archive.js';
 import {REGISTRY,METRICS,VERSION,WorkError,need,interval,iso,finite,overlap,parseArmory,buildReport,validatePair,csv} from './model.js';
+import {collectRankedArchive,readRankedArchive,rankedHelp} from './ranked-archive.js';
 const PREFIX='/api/officer-work',LEASE=300000,MAX_FAILURES=6;
 const originOK=o=>!o||['https://sharedliveintelligencenetwork.app','https://slink-website.richard-johnson554.workers.dev'].includes(o);
 const idOK=s=>typeof s==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(s);
@@ -30,11 +30,11 @@ export async function torn(env,apiKey,userId,path,params={},fetcher=fetch){
  return {data,source:path,observedAt:iso(Date.now()),retrievedAt:iso(Date.now()),upstreamDate:response.headers.get('date')||null,upstreamAge:response.headers.has('age')?Number(response.headers.get('age')):null};
 }
 function checkSchema(result,field){need(result.data&&typeof result.data==='object'&&field in result.data,'TORN_SCHEMA','Torn returned an unexpected '+field+' response. The collection has been paused for retry.',503);if(['members','attacks','news','items','rankedwars'].includes(field))need(Array.isArray(result.data[field]),'TORN_SCHEMA','Torn returned an invalid '+field+' list. Progress is retained.',503);return result.data[field];}
-async function identity(env,deps,key,userId){
- const info=checkSchema(await torn(env,key,userId,'/v2/key/info'), 'info');
+async function identity(env,deps,key,userId,request=(...args)=>torn(env,...args)){
+ const info=checkSchema(await request(key,userId,'/v2/key/info'), 'info');
  need(Number(info.user?.id)===userId&&Number(info.user?.faction_id)>0,'IDENTITY_CHANGED','The key owner or current faction no longer matches this collection.',403);
  need(info.access?.faction===true,'FACTION_API_ACCESS','Enable Faction API Access on the Torn key. A key level name is not sufficient.',403);
- const factionId=Number(info.user.faction_id),rosterResult=await torn(env,key,userId,'/v2/faction/members'),roster=checkSchema(rosterResult,'members');need(Array.isArray(roster),'TORN_SCHEMA','Torn returned an invalid faction roster.',503);
+ const factionId=Number(info.user.faction_id),rosterResult=await request(key,userId,'/v2/faction/members'),roster=checkSchema(rosterResult,'members');need(Array.isArray(roster),'TORN_SCHEMA','Torn returned an invalid faction roster.',503);
  const member=roster.find(m=>Number(m.id)===userId);need(member,'NOT_IN_FACTION','Your current faction membership could not be verified.',403);
  const permissions=await deps.loadPermissions(env,userId,factionId,Date.now(),member.position||'');need(deps.hasScope(permissions,'admin.*')||deps.hasScope(permissions,'slink.war.officer'),'OFFICER_REQUIRED','Your current faction needs to authorize you as a SLINK War Officer.',403);
  return {userId,factionId,name:member.name,position:member.position,info,roster,rosterSource:rosterResult};
@@ -101,13 +101,27 @@ export async function runOfficerWork(env,deps,scheduledAt=Date.now(),pageRun=nul
    async pool(factionId,primary,finished){
     const owner=await db(env).prepare('SELECT id,user_id FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(primary,factionId).first();
     if(finished)return owner?[owner]:[];
-    const helpers=await db(env).prepare('SELECT c.id,c.user_id FROM officer_ranked_helpers h JOIN officer_work_credentials c ON c.id=h.credential_id AND c.user_id=h.user_id AND c.faction_id=h.faction_id LEFT JOIN officer_ranked_helper_budget b ON b.user_id=c.user_id WHERE h.faction_id=? AND c.revoked=0 AND c.id<>? ORDER BY coalesce(b.started_at,0),c.user_id LIMIT 5').bind(factionId,primary).all();
+    const helpers=await db(env).prepare('SELECT c.id,c.user_id FROM officer_ranked_helpers h JOIN officer_work_credentials c ON c.id=h.credential_id AND c.user_id=h.user_id AND c.faction_id=h.faction_id WHERE h.faction_id=? AND c.revoked=0 AND c.id<>? ORDER BY coalesce((SELECT max(at) FROM officer_ranked_calls WHERE user_id=c.user_id),0),c.user_id LIMIT 5').bind(factionId,primary).all();
     return [...(owner?[owner]:[]),...helpers.results];
    },
-   async verify(credentialId,factionId){
-    const owner=await db(env).prepare('SELECT user_id FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(credentialId,factionId).first();
-    need(owner,'CREDENTIAL_REVOKED','The ranked archive credential is unavailable.',403);
-    return credential(env,deps,{user_id:owner.user_id,faction_id:factionId},credentialId);
+   async verify(credentialId,factionId,request){
+    const c=await db(env).prepare('SELECT * FROM officer_work_credentials WHERE id=? AND faction_id=? AND revoked=0').bind(credentialId,factionId).first();
+    need(c,'CREDENTIAL_REVOKED','The ranked archive credential is unavailable.',403);
+    const now=Date.now();
+    const cached=await db(env).prepare('SELECT * FROM officer_ranked_key_state WHERE credential_id=? AND revision=?').bind(c.id,c.updated_at).first();
+    if(cached?.blocked_until>now)return {blockedUntil:cached.blocked_until,error:cached.error};
+    const key=await deps.decryptApiKey(c.ciphertext,c.iv,c.user_id,env.API_KEY_ENCRYPTION_KEY);
+    if(cached?.verified_at>now-30*60000){
+     const permissions=await deps.loadPermissions(env,c.user_id,factionId,now,cached.position||'');
+     need(deps.hasScope(permissions,'admin.*')||deps.hasScope(permissions,'slink.war.officer'),'OFFICER_REQUIRED','This saved key no longer has War Officer permission.',403);
+     return {key,actor:{userId:c.user_id,factionId},verificationCalls:0};
+    }
+    const budget=await db(env).prepare('SELECT count(*) AS used FROM officer_ranked_calls WHERE user_id=? AND at>?').bind(c.user_id,now-60000).first();
+    need(budget.used<=3,'ARCHIVE_MINUTE_BUDGET','Not enough slots remain to verify this key.',429);
+    const actor=await identity(env,deps,key,c.user_id,request);
+    need(actor.factionId===factionId,'FACTION_CHANGED','The archive credential no longer belongs to the archive faction.',403);
+    await db(env).prepare('INSERT INTO officer_ranked_key_state(credential_id,revision,verified_at,position) VALUES(?,?,?,?) ON CONFLICT(credential_id) DO UPDATE SET revision=excluded.revision,verified_at=excluded.verified_at,position=excluded.position,blocked_until=0,error=NULL').bind(c.id,c.updated_at,now,actor.position||'').run();
+    return {key,actor,verificationCalls:2};
    },
    request:(key,userId,path,params)=>torn(env,key,userId,path,params),
    clean:sanitized
