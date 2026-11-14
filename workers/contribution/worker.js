@@ -2210,7 +2210,7 @@ async function handleVirtualCollection(request, env) {
             const failures = [];
             for (const target of targets) {
                 try {
-                    const data = await performTornBasicRequest(target.id, apiKey);
+                    const data = await performTornBasicRequest(target.id, apiKey, 'SLINK Virt Coll');
                     observations.push(tornBasicObservation(target.id, data));
                 } catch (error) {
                     if (error?.code === 'TORN_KEY_INVALID') throw error;
@@ -2964,13 +2964,35 @@ async function performAllowlistedJob(job, apiKey) {
     const targetId = positiveInteger(payload.target_id);
     if (!targetId) throw new RequestValidationError('A valid target_id is required.');
 
-    return performTornBasicRequest(targetId, apiKey);
+    return performTornBasicRequest(targetId, apiKey, 'SLINK Donor Job');
 }
 
 
-async function performTornBasicRequest(targetId, apiKey) {
+const tornBasicInFlight=new Map();
+async function performTornBasicRequest(targetId,apiKey,comment) {
+    // Public identity/status only. Keep the synthetic cache URL free of API keys.
+    const cache=globalThis.caches?.default;
+    const key=new Request('https://slink-public-basic.invalid/v1/'+targetId);
+    const hit=await cache?.match(key).catch(()=>undefined);
+    if(hit)return hit.json();
+    if(tornBasicInFlight.has(targetId))return tornBasicInFlight.get(targetId);
+    const pending=fetchFreshTornBasic(targetId,apiKey,comment).then(async data=>{
+        const source=data?.profile??data?.basic??data?.user??data;
+        // Do not restore an expired timed status from the cache.
+        const until=Number(source?.status?.until)*1000,now=Date.now();
+        const maxAge=until>now?Math.min(60,Math.floor((until-now)/1000)):60;
+        if(maxAge>0 && source?.status?.state){
+            await cache?.put(key,new Response(JSON.stringify(data),{headers:{'Cache-Control':'max-age='+maxAge,'Content-Type':'application/json'}})).catch(()=>{});
+        }
+        return data;
+    }).finally(()=>tornBasicInFlight.delete(targetId));
+    tornBasicInFlight.set(targetId,pending);
+    return pending;
+}
+
+async function fetchFreshTornBasic(targetId, apiKey, comment) {
     const response = await fetch(
-        `https://api.torn.com/v2/user/${encodeURIComponent(targetId)}/basic`,
+        `https://api.torn.com/v2/user/${encodeURIComponent(targetId)}/basic?comment=${encodeURIComponent(comment)}`,
         {
             method: 'GET',
             headers: {

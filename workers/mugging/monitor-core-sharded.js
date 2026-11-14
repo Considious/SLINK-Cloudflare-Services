@@ -278,10 +278,12 @@ async function mergeScansIntoShards(bucket, index, dirtyShards, scanResults, now
             target.company_type = company.type_name || '';
             target.company_rating = Number(company.rating) || 0;
             target.position = employee.position;
-            target.status_state = employee.status_state;
-            target.status_description = employee.status_description;
-            target.status_until = employee.status_until;
-            target.last_checked_at = now;
+            if (employee.status_state && !/^unknown$/i.test(employee.status_state) && now>=Number(target.last_checked_at||0)) {
+                target.status_state = employee.status_state;
+                target.status_description = employee.status_description;
+                target.status_until = employee.status_until;
+                target.last_checked_at = now;
+            }
             target.last_seen_at = now;
             if (mugged) core.recordMug(target, now, 'company_status', null, events);
             target.last_mug_signature = isMuggedNow ? signature : '';
@@ -504,7 +506,8 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
     if (!clientId) throw new Error('A contributor client ID is required.');
     const active = input.active === true;
     const userId = positiveInteger(input.user_id ?? input.userId);
-    const apiBudget = active ? 10 : 5;
+    const apiBudget = active ? 10 : 0;
+    if (!active) return {generated_at:now,mode:'inactive',personal_assignments_allowed:false,api_budget_per_minute:0,tasks:[],estimate_tasks:[]};
     const limit = boundedInteger(input.limit, apiBudget * 4, 1, 40);
     await ensureShardedStorage(env.MUGGING_BUCKET, now);
     const minuteSlot = Math.floor(now / 60_000);
@@ -527,6 +530,8 @@ export async function contributorTaskAssignments(env, input = {}, now = Date.now
         const nextCheckAt = Math.max(timedUntil, freeAt);
         if (nextCheckAt > now) continue;
         const lastCheckedAt = Math.max(0, Number(target?.last_checked_at) || 0);
+        const stateFreshness=/fallen|federal/i.test(state)?86_400_000:/unknown/i.test(state)?60_000:15*60_000;
+        if (!(timedUntil && timedUntil<=now && lastCheckedAt<timedUntil) && now-lastCheckedAt<stateFreshness) continue;
         candidates.push({ target, id, lastCheckedAt, order:stableHash(`${clientId}:${minuteSlot}:${id}`) });
     }
     candidates.sort((left, right) =>
