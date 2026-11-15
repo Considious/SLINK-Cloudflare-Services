@@ -111,7 +111,7 @@ export async function runOfficerWork(env,deps,scheduledAt=Date.now(),pageRun=nul
     const cached=await db(env).prepare('SELECT * FROM officer_ranked_key_state WHERE credential_id=? AND revision=?').bind(c.id,c.updated_at).first();
     if(cached?.blocked_until>now)return {blockedUntil:cached.blocked_until,error:cached.error};
     const key=await deps.decryptApiKey(c.ciphertext,c.iv,c.user_id,env.API_KEY_ENCRYPTION_KEY);
-    if(cached?.verified_at>now-30*60000){
+    if(cached?.verified_at>now-6*60*60000){
      const permissions=await deps.loadPermissions(env,c.user_id,factionId,now,cached.position||'');
      need(deps.hasScope(permissions,'admin.*')||deps.hasScope(permissions,'slink.war.officer'),'OFFICER_REQUIRED','This saved key no longer has War Officer permission.',403);
      return {key,actor:{userId:c.user_id,factionId},verificationCalls:0};
@@ -125,7 +125,7 @@ export async function runOfficerWork(env,deps,scheduledAt=Date.now(),pageRun=nul
    },
    request:(key,userId,path,params)=>torn(env,key,userId,path,params),
    clean:sanitized
-  },scheduledAt);}catch{console.warn('Ranked War archive collection deferred');}
+  },scheduledAt);}catch(error){console.error('Ranked War archive dispatch failed',{code:error instanceof WorkError?error.code:'ARCHIVE_DISPATCH_FAILED',scheduledAt});}
  }
  await db(env).prepare('DELETE FROM officer_work_rate WHERE minute<?').bind(Math.floor(Date.now()/60000)-10).run();
  let due;try{due=await db(env).prepare("SELECT id FROM officer_work_jobs WHERE ((status='Scheduled' AND next_run<=?) OR (status='Running' AND lease_until<?)) AND "+(pageRun?"id=? AND credential_id=?":"credential_id NOT LIKE 'session-%'")+" ORDER BY scheduled_at LIMIT 4").bind(scheduledAt,scheduledAt,...(pageRun?[pageRun.jobId,pageRun.c.id]:[])).all();}catch(e){if(/no such table/i.test(String(e)))return {setupRequired:true};throw e;}

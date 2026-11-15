@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {collectRankedArchive,readRankedArchive,rankedHelp} from './ranked-archive.js';
+import {WorkError} from './model.js';
 
 test('archive checkpoints, retains report fields, isolates factions and refreshes on schedule',async t=>{
  const sqlite=new DatabaseSync(':memory:');
@@ -60,7 +61,7 @@ test('archive checkpoints, retains report fields, isolates factions and refreshe
   return deps.request(key,user,path);
  }};
  await collectRankedArchive(env,pooled,now+700000);
- assert.deepEqual(users,[5,5,5,8,8]);
+ assert.deepEqual(users,[5,5,5,8]);
  assert.equal((await list()).rows.length,7);
  for(let i=0;i<5;i++)await collectRankedArchive(env,pooled,wall);
  for(const user of [5,8])assert.equal(users.filter(id=>id===user).length,5);
@@ -69,3 +70,54 @@ test('archive checkpoints, retains report fields, isolates factions and refreshe
  assert.ok(users.filter(id=>id===5).length>5);
  assert.deepEqual(await rankedHelp(env,helper,'helper-key',false),{enabled:false});
 });
+
+test('persistent cron backfill skips only the incomplete report, reuses pages, and reconciles twice daily',async t=>{
+ const sqlite=new DatabaseSync(':memory:');
+ const prepare=sql=>{
+  const bind=(...values)=>({run:async()=>sqlite.prepare(sql).run(...values),first:async()=>sqlite.prepare(sql).get(...values),all:async()=>({results:sqlite.prepare(sql).all(...values)})});
+  return {...bind(),bind};
+ };
+ const storage=new Map();
+ const env={RANKED_ARCHIVE_ENABLED:'true',RANKED_ARCHIVE_FACTION_ID:'10',RANKED_ARCHIVE_CREDENTIAL_ID:'saved',PERMISSIONS_DB:{prepare,batch:async steps=>Promise.all(steps.map(x=>x.run()))},USER_BACKUPS:{put:async(key,value)=>storage.set(key,value)}};
+ let wall=Date.UTC(2028,0,1,11,41),ready=false,extra=false;
+ t.mock.method(Date,'now',()=>wall);
+ const start=wall/1000-1000, calls=[];
+ const listing=warId=>({id:warId,start:start+warId,end:start+warId+10});
+ const deps={pool:async()=>[{id:'saved'}],verify:async()=>({key:'test',actor:{userId:5,factionId:10},verificationCalls:0}),clean:v=>v,request:async(_key,_user,path,params)=>{
+  calls.push({at:wall,path});
+  if(path.endsWith('/warfareranked')){
+   const wars=Array.from({length:extra?12:11},(_,i)=>listing(i+1)).filter(x=>x.start<=params.to&&x.start>=(params.from??0));
+   return {data:{warfareranked:wars}};
+  }
+  const warId=Number(path.split('/')[3]);
+  if(warId===10&&!ready)throw new WorkError('TORN_6','Report missing',403);
+  return {data:{rankedwarreport:{...listing(warId),factions:[{id:5},{id:7}]}}};
+ }};
+ const run=async()=>collectRankedArchive(env,deps,wall);
+ const state=()=>sqlite.prepare('SELECT * FROM officer_ranked_global_state').get();
+ const count=()=>sqlite.prepare('SELECT count(*) AS n FROM officer_ranked_global_wars').get().n;
+ await run();
+ assert.deepEqual(calls.map(c=>c.path.split('/').at(-2)),['faction','11','10','9','8']);
+ assert.equal(count(),3);
+ assert.equal(sqlite.prepare('SELECT war_id FROM officer_ranked_archive_retry').get().war_id,10);
+ assert.equal(state().error,null);
+ wall+=60000;await run();
+ assert.equal(calls.filter(c=>c.path.endsWith('/warfareranked')).length,1);
+ assert.equal(calls.filter(c=>c.at===wall).length,5);
+ for(let i=0;i<10&&state().next_run<=wall;i++){wall+=60000;await run();}
+ assert.equal(count(),10);
+ assert.equal(state().backfilled,1);
+ assert.equal(state().next_run,Date.UTC(2028,0,1,12));
+ ready=true;
+ // A deferred report is still retried while the twice-daily scan is asleep.
+ wall+=600000;await run();
+ assert.equal(count(),11);
+ assert.equal(state().next_run,Date.UTC(2028,0,1,12));
+ assert.equal(sqlite.prepare('SELECT count(*) AS n FROM officer_ranked_archive_retry').get().n,0);
+ extra=true;wall=Date.UTC(2028,0,1,12);await run();
+ assert.equal(count(),12);
+ for(let i=0;i<3;i++){wall+=60000;await run();}
+ assert.equal(state().next_run,Date.UTC(2028,0,2,0));
+});
+
+
