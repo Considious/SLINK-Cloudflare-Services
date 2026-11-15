@@ -56,7 +56,7 @@ export async function handleOfficerWork(request,env,ctx,deps){const url=new URL(
   const savedCredential=request.headers.get('X-Officer-Credential'),liveKey=request.headers.get('X-Officer-Key');
   const readOnly=request.method==='GET'&&(path==='/jobs'||/^\/jobs\/[a-zA-Z0-9-]+(?:\/(?:data|csv|provenance))?$/.test(path)||/^\/ranked-archive(?:\/\d+)?$/.test(path));
   let signedActor=null;
-  if(request.method==='GET'&&(path==='/session'||readOnly&&!liveKey&&!savedCredential)){
+  if(request.method==='GET'&&(path==='/session'||readOnly)){
    const userId=Number(session.user_id),factionId=Number(session.faction_id);
    const current=await deps.loadPermissions(env,userId,factionId,Date.now(),session.faction_position||'');
    const officer=permissions=>deps.hasScope(permissions,'admin.*')||deps.hasScope(permissions,'slink.war.officer');

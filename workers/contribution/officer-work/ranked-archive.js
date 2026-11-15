@@ -239,7 +239,8 @@ async function collectSlice(env,{verify,request,clean},now,credentialId,pooled=f
   else await step.run();
   if(next>now||backfilled&&!state.backfilled)return 'stop';
  }catch(error){
-  if(error?.code==='ARCHIVE_MINUTE_BUDGET'){
+  if(['ARCHIVE_MINUTE_BUDGET','RATE_BUDGET'].includes(error?.code)){
+   // Local API allowance resets on its next tick; this is not a bad key.
    await db.prepare('UPDATE officer_ranked_global_state SET lease=NULL,lease_until=0 WHERE faction_id=? AND lease=?').bind(factionId,lease).run();
    return;
   }
