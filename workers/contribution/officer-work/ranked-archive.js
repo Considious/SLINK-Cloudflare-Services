@@ -1,5 +1,6 @@
 import {WorkError,need} from './model.js';
 
+const ARCHIVE_PAGE=20, REPORT_BATCH=5;
 const PAGE=100, INTERVAL=12*60*60*1000;
 const nextWindow=now=>(Math.floor(now/INTERVAL)+1)*INTERVAL;
 const id=v=>Number.isSafeInteger(Number(v))&&Number(v)>0?Number(v):null;
@@ -82,14 +83,29 @@ export async function readRankedArchive(env,actor,path,params,now=Date.now()){
  need(!before||parts&&id(parts[1])&&id(parts[2]),'INVALID_PAGE','Invalid archive page.');
  const filters=['faction_id=?'],values=[factionId];
  if(parts){filters.push('(ended<? OR (ended=? AND war_id<?))');values.push(Number(parts[1]),Number(parts[1]),Number(parts[2]));}
- const rows=(await db.prepare('SELECT war_id,ended,summary FROM officer_ranked_global_wars WHERE '+filters.join(' AND ')+' ORDER BY ended DESC,war_id DESC LIMIT 101').bind(...values).all()).results;
+ const rows=(await db.prepare('SELECT war_id,ended,summary FROM officer_ranked_global_wars WHERE '+filters.join(' AND ')+' ORDER BY ended DESC,war_id DESC LIMIT ?').bind(...values,ARCHIVE_PAGE+1).all()).results;
  const state=await db.prepare('SELECT backfilled,updated_at,error,next_run FROM officer_ranked_global_state WHERE faction_id=?').bind(factionId).first();
  const pending=await db.prepare('SELECT count(*) AS count FROM officer_ranked_archive_retry WHERE faction_id=?').bind(factionId).first();
  const cutoff=Math.floor(now/1000)-30*86400;
  const to=Math.floor(now/1000);
  const recent=await db.prepare("SELECT count(*) AS wars, sum(CASE WHEN json_extract(summary,'$.forfeit')='Yes' THEN 1 ELSE 0 END) AS forfeits, avg(abs(json_extract(summary,'$.scoreA')-json_extract(summary,'$.scoreB'))) AS averageScoreMargin FROM officer_ranked_global_wars WHERE faction_id=? AND ended>=? AND ended<=?").bind(factionId,cutoff,to).first();
- const last=rows[99];
- return {rows:rows.slice(0,100).map(r=>JSON.parse(r.summary)),next:rows.length>100?`${last.ended}:${last.war_id}`:null,updatedAt:state?.updated_at??null,backfilled:Boolean(state?.backfilled),pendingReports:pending.count,nextRunAt:state?.next_run??null,paused:Boolean(state?.error),errorCode:state?.error??null,retryAt:state?.error?state.next_run||null:null,analysis:{from:cutoff,to,wars:recent.wars,forfeits:recent.forfeits??0,averageScoreMargin:recent.averageScoreMargin,coverageComplete:Boolean(state?.backfilled&&!pending.count&&!state?.error&&now-state.updated_at<INTERVAL+60*60000)}};
+ const last=rows[ARCHIVE_PAGE-1];
+ const page=rows.slice(0,ARCHIVE_PAGE),expanded=[];
+ // Keep raw reports in R2 and fetch only the visible page. One missing object
+ // must not prevent the summaries or the other reports from being displayed.
+ for(let start=0;start<page.length;start+=REPORT_BATCH){
+  expanded.push(...await Promise.all(page.slice(start,start+REPORT_BATCH).map(async row=>{
+   const summary=JSON.parse(row.summary);
+   try{
+    const object=await env.USER_BACKUPS.get(root(factionId)+row.war_id+'.json');
+    const payload=(await object?.json())?.report;
+    const report=payload?.rankedwarreport;
+    if(id(report?.id??report?.war_id)===row.war_id&&Array.isArray(report.factions))return {...summary,report:payload};
+   }catch{/* Leave the summary readable on R2 errors. */}
+   return {...summary,report:null};
+  })));
+ }
+ return {rows:expanded,next:rows.length>ARCHIVE_PAGE?`${last.ended}:${last.war_id}`:null,updatedAt:state?.updated_at??null,backfilled:Boolean(state?.backfilled),pendingReports:pending.count,nextRunAt:state?.next_run??null,paused:Boolean(state?.error),errorCode:state?.error??null,retryAt:state?.error?state.next_run||null:null,analysis:{from:cutoff,to,wars:recent.wars,forfeits:recent.forfeits??0,averageScoreMargin:recent.averageScoreMargin,coverageComplete:Boolean(state?.backfilled&&!pending.count&&!state?.error&&now-state.updated_at<INTERVAL+60*60000)}};
 }
 export async function rankedHelp(env,actor,credential,enabled){
  const factionId=id(env.RANKED_ARCHIVE_FACTION_ID),db=env.PERMISSIONS_DB;
