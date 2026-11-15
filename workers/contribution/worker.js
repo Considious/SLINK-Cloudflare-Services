@@ -2,7 +2,7 @@ import '../shared/errors.js';
 /**
  * SLINK Contribution Service
  *
- * Release: 0.4.13-ranked-archive
+ * Release: 0.4.14-ranked-pagination
  *
  * Stores only authenticated-encryption ciphertext in D1. Plaintext Torn API
  * keys exist only in request memory during donation validation or scheduled
@@ -14,7 +14,7 @@ import {handleOfficerWork,runOfficerWork} from './officer-work/service.js';
 import {handleCrimeRecipes} from './crime-recipes.js';
 import {handleCrackingDictionary,contributeCracking} from './cracking-dictionary.js';
 import {handleFactionNode} from '../faction-node/central.js';
-const WORKER_VERSION = '0.4.13-ranked-archive';
+const WORKER_VERSION = '0.4.14-ranked-pagination';
 const DATA_TERMS_VERSION = '2026-11-01';
 const DATA_TERMS_SHA256 =
     '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';

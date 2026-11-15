@@ -39,17 +39,19 @@ export function rankedSummary(report){
  const a=side(own),b=side(opponent);
  return {warId,start,end,durationSeconds:end-start,factionA:a.name,factionAId:a.id,factionB:b.name,factionBId:b.id,winner:winner===a.id?a.name:winner===b.id?b.name:null,forfeit:typeof report.forfeit==='boolean'?(report.forfeit?'Yes':'No'):null,scoreA:a.score,scoreB:b.score,attacksA:a.attacks,attacksB:b.attacks,membersA:a.members,membersB:b.members,rankBeforeA:a.rankBefore,rankAfterA:a.rankAfter,rankBeforeB:b.rankBefore,rankAfterB:b.rankAfter};
 }
-function nextCursor(raw,current){
- if(!raw)return null;
- const url=new URL(raw,'https://api.torn.com');
- need(url.origin==='https://api.torn.com'&&url.pathname==='/v2/faction/warfareranked'&&!url.username&&!url.password,'UNSAFE_PAGINATION','Torn returned an unexpected global history link.',503);
- const out={};
- for(const name of ['from','to','offset'])if(url.searchParams.has(name)){
-  const value=url.searchParams.get(name);need(/^\d{1,14}$/.test(value),'UNSAFE_PAGINATION','Torn returned an invalid global history cursor.',503);out[name]=Number(value);
- }
- const next={...(current.from!=null?{from:current.from}:{}),to:out.to??current.to,...(out.offset!=null?{offset:out.offset}:{})};
- need(Object.keys(out).length&&next.to<=current.to&&(next.to<current.to||(next.offset??0)>(current.offset??0)),'UNSAFE_PAGINATION','Torn did not advance global history.',503);
- return next;
+function continuationOffset(raw,current,count){
+ if(typeof raw!=='string'||!raw||raw.length>4096)return null;
+ let url;try{url=new URL(raw,'https://api.torn.com/v2/faction/warfareranked');}catch{return null;}
+ if(url.origin!=='https://api.torn.com'||url.username||url.password)return null;
+ const path=url.pathname.replace(/\/$/,'');
+ if(path!=='/v2/faction/warfareranked'&&!(path==='/v2/faction'&&url.searchParams.get('selections')==='warfareranked'))return null;
+ const same=(name,value)=>!url.searchParams.has(name)||
+  url.searchParams.getAll(name).length===1&&/^\d{1,14}$/.test(url.searchParams.get(name))&&Number(url.searchParams.get(name))===value;
+ if(!same('to',current.to)||!same('from',current.from)||url.searchParams.has('sort')&&url.searchParams.get('sort').toUpperCase()!=='DESC')return null;
+ const offsets=url.searchParams.getAll('offset');
+ if(offsets.length!==1||!/^\d{1,7}$/.test(offsets[0]))return null;
+ const offset=Number(offsets[0]),previous=current.offset??0;
+ return count>0&&offset===previous+count?{...current,offset}:null;
 }
 function olderCursor(list,cursor){
  if(!list.length)return null;
@@ -192,8 +194,17 @@ async function collectSlice(env,{verify,request,clean},now,credentialId,pooled=f
    const history=await limitedRequest(key,actor.userId,'/v2/faction/warfareranked',{...cursor,sort:'DESC',limit:PAGE});
    const list=history.data?.warfareranked,link=history.data?._metadata?.links?.next;
    need(Array.isArray(list)&&list.length<=PAGE&&list.every(w=>id(w?.id??w?.war_id)&&epoch(w?.start)),'TORN_SCHEMA','Torn returned an invalid ranked war history page.',503);
-   need(list.length||!link,'TORN_SCHEMA','Torn returned an empty page with a continuation.',503);
-   const continuation=nextCursor(link,cursor)||olderCursor(list,cursor);
+   // The HTTP request is always rebuilt for the fixed Torn endpoint. A legacy,
+   // malformed, or non-advancing hyperlink must not stop a valid history page.
+   let continuation=continuationOffset(link,cursor,list.length);
+   if(!continuation){
+    try{
+     continuation=list.length?olderCursor(list,cursor):link?{blocked:true}:null;
+    }catch(error){
+     if(error?.code!=='TORN_PAGINATION')throw error;
+     continuation={blocked:true};
+    }
+   }
    page={listing:JSON.stringify(list.slice().sort((a,b)=>b.start-a.start||(b.id??b.war_id)-(a.id??a.war_id))),continuation:continuation?JSON.stringify(continuation):null};
    await db.batch([
     db.prepare('INSERT INTO officer_ranked_archive_page VALUES(?,?,?,?) ON CONFLICT(faction_id) DO UPDATE SET cursor=excluded.cursor,listing=excluded.listing,continuation=excluded.continuation').bind(factionId,cursorKey,page.listing,page.continuation),
@@ -211,6 +222,16 @@ async function collectSlice(env,{verify,request,clean},now,credentialId,pooled=f
   let nextPage=cursorKey;
   if(position>=list.length){
    nextPage=page.continuation;position=0;
+   if(nextPage&&JSON.parse(nextPage).blocked===true){
+    // Save every report on this page first; retry the ambiguous boundary rather
+    // than silently skipping a full same-timestamp group or declaring it done.
+    await db.batch([
+     db.prepare('DELETE FROM officer_ranked_archive_page WHERE faction_id=? AND cursor=? AND EXISTS(SELECT 1 FROM officer_ranked_global_state WHERE faction_id=? AND lease=?)').bind(factionId,cursorKey,factionId,lease),
+     db.prepare("UPDATE officer_ranked_global_state SET position=0,updated_at=?,next_run=?,lease=NULL,lease_until=0,error='TORN_PAGINATION_BOUNDARY' WHERE faction_id=? AND lease=?").bind(now,now+300000,factionId,lease)
+    ]);
+    console.warn('Ranked War archive pagination boundary needs a retry',{factionId,to:cursor.to,offset:cursor.offset??0,pageSize:list.length});
+    return 'stop';
+   }
    if(!nextPage){backfilled=1;next=state.backfilled||!pooled?nextWindow(now):now;}
   }
   const step=db.prepare('UPDATE officer_ranked_global_state SET cursor=?,position=?,backfilled=?,updated_at=?,next_run=?,lease=NULL,lease_until=0,error=NULL WHERE faction_id=? AND lease=?').bind(nextPage,position,backfilled,now,next,factionId,lease);

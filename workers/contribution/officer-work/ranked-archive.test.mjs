@@ -87,7 +87,9 @@ test('persistent cron backfill skips only the incomplete report, reuses pages, a
   calls.push({at:wall,path});
   if(path.endsWith('/warfareranked')){
    const wars=Array.from({length:extra?12:11},(_,i)=>listing(i+1)).filter(x=>x.start<=params.to&&x.start>=(params.from??0));
-   return {data:{warfareranked:wars}};
+   // Torn's generated URL may use a legacy route and give a cursor that
+   // doesn't move backwards. The collector must still advance from the data.
+   return {data:{warfareranked:wars,_metadata:{links:{next:wars.length?`/v2/faction/?selections=warfareranked&to=${params.to}&key=discard-me`:null}}}};
   }
   const warId=Number(path.split('/')[3]);
   if(warId===10&&!ready)throw new WorkError('TORN_6','Report missing',403);
@@ -118,6 +120,40 @@ test('persistent cron backfill skips only the incomplete report, reuses pages, a
  assert.equal(count(),12);
  for(let i=0;i<3;i++){wall+=60000;await run();}
  assert.equal(state().next_run,Date.UTC(2028,0,2,0));
+});
+
+test('archive rebuilds safe legacy offsets, ignores other hosts, and retains all boundary ties',async t=>{
+ const sqlite=new DatabaseSync(':memory:');
+ const prepare=sql=>{
+  const bind=(...values)=>({run:async()=>sqlite.prepare(sql).run(...values),first:async()=>sqlite.prepare(sql).get(...values),all:async()=>({results:sqlite.prepare(sql).all(...values)})});
+  return {...bind(),bind};
+ };
+ const env={RANKED_ARCHIVE_ENABLED:'true',RANKED_ARCHIVE_FACTION_ID:'10',RANKED_ARCHIVE_CREDENTIAL_ID:'saved',PERMISSIONS_DB:{prepare,batch:async steps=>Promise.all(steps.map(x=>x.run()))},USER_BACKUPS:{put:async()=>{}}};
+ let wall=Date.UTC(2028,1,1,11,0);
+ t.mock.method(Date,'now',()=>wall);
+ const second=wall/1000-600;
+ const listing=warId=>({id:warId,start:warId===1?second-1:second,end:second+20});
+ const requests=[];
+ const deps={pool:async()=>[{id:'saved'}],verify:async()=>({key:'local-only',actor:{userId:5,factionId:10},verificationCalls:0}),clean:v=>v,request:async(_key,_user,path,params)=>{
+  if(path==='/v2/faction/warfareranked'){
+   requests.push(params);
+   const offset=params.offset??0;
+   const rows=Array.from({length:104},(_,i)=>listing(104-i)).filter(w=>w.start<=params.to&&w.start>=(params.from??0)).slice(offset,offset+100);
+   const link=params.to>second?'https://untrusted.invalid/v2/faction/warfareranked?offset=100':
+    rows.length===100?`/v2/faction/?selections=warfareranked&to=${params.to}&offset=100&key=discard-me&comment=ignore`:null;
+   return {data:{warfareranked:rows,_metadata:{links:{next:link}}}};
+  }
+  const warId=Number(path.split('/')[3]);
+  return {data:{rankedwarreport:{...listing(warId),factions:[{id:5},{id:7}]}}};
+ }};
+ const count=()=>sqlite.prepare('SELECT count(*) AS n FROM officer_ranked_global_wars').get().n;
+ for(let i=0;i<35;i++){await collectRankedArchive(env,deps,wall);wall+=60000;if(count()===104)break;}
+ assert.equal(count(),104);
+ assert.equal(requests[1].to,second);
+ assert.equal(requests[1].offset,undefined);
+ assert.equal(requests[2].to,second);
+ assert.equal(requests[2].offset,100);
+ assert.ok(requests.every(p=>!Object.hasOwn(p,'key')&&!Object.hasOwn(p,'comment')));
 });
 
 
