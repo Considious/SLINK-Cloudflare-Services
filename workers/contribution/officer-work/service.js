@@ -53,9 +53,25 @@ export async function handleOfficerWork(request,env,ctx,deps){const url=new URL(
    const key=String(input.apiKey||'').trim();need(/^[a-zA-Z0-9]{16}$/.test(key),'INVALID_KEY','Enter a 16-character Torn key.');const actor=await identity(env,deps,key,Number(session.user_id));need(actor.factionId===Number(session.faction_id),'FACTION_CHANGED','Refresh SLINK login after changing faction.',403);const capabilities=await probe(env,key,actor);if(input.keepEncrypted!==true)return json({credentialId:null,identity:{userId:actor.userId,name:actor.name,factionId:actor.factionId},capabilities,executionMode:'page'},200,origin);const encrypted=await deps.encryptApiKey(key,actor.userId,env.API_KEY_ENCRYPTION_KEY),existing=await db(env).prepare('SELECT id FROM officer_work_credentials WHERE user_id=? AND faction_id=? AND revoked=0 ORDER BY updated_at DESC LIMIT 1').bind(actor.userId,actor.factionId).first(),id=existing?.id||crypto.randomUUID(),now=Date.now();await db(env).prepare('INSERT INTO officer_work_credentials(id,user_id,faction_id,ciphertext,iv,capabilities,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ciphertext=excluded.ciphertext,iv=excluded.iv,capabilities=excluded.capabilities,updated_at=excluded.updated_at').bind(id,actor.userId,actor.factionId,encrypted.ciphertext,encrypted.iv,JSON.stringify(capabilities),now,now).run();await audit(env,actor,null,'credential_verified',{credentialId:id});return json({credentialId:id,identity:{userId:actor.userId,name:actor.name,factionId:actor.factionId},capabilities},200,origin);
   }
   if(path==='/credential/revoke'){need(idOK(input.credentialId),'INVALID_CREDENTIAL','Choose a credential.');await db(env).prepare('UPDATE officer_work_credentials SET revoked=1,ciphertext=NULL,iv=NULL,updated_at=? WHERE id=? AND user_id=?').bind(Date.now(),input.credentialId,session.user_id).run();return json({ok:true},200,origin);}
-  const liveKey=request.headers.get('X-Officer-Key');let verified;
+  const savedCredential=request.headers.get('X-Officer-Credential'),liveKey=request.headers.get('X-Officer-Key');
+  const readOnly=request.method==='GET'&&(path==='/jobs'||/^\/jobs\/[a-zA-Z0-9-]+(?:\/(?:data|csv|provenance))?$/.test(path)||/^\/ranked-archive(?:\/\d+)?$/.test(path));
+  let signedActor=null;
+  if(request.method==='GET'&&(path==='/session'||readOnly&&!liveKey&&!savedCredential)){
+   const userId=Number(session.user_id),factionId=Number(session.faction_id);
+   const current=await deps.loadPermissions(env,userId,factionId,Date.now(),session.faction_position||'');
+   const officer=permissions=>deps.hasScope(permissions,'admin.*')||deps.hasScope(permissions,'slink.war.officer');
+   need(officer(session)&&officer(current),'OFFICER_REQUIRED','Current SLINK War Officer access is required.',403);
+   signedActor={userId,factionId,name:String(session.user_name||'Player '+userId)};
+   if(path==='/session'){
+    const saved=idOK(savedCredential)?await db(env).prepare('SELECT id,capabilities FROM officer_work_credentials WHERE id=? AND user_id=? AND faction_id=? AND revoked=0').bind(savedCredential,userId,factionId).first():null;
+    return json({identity:signedActor,credentialId:saved?.id??null,capabilities:saved?JSON.parse(saved.capabilities):{},expiresAt:new Date(session.exp*1000).toISOString()},200,origin);
+   }
+  }
+  let verified;
+  if(signedActor)verified={actor:signedActor,c:null};
+  else
   if(liveKey){need(/^[a-zA-Z0-9]{16}$/.test(liveKey),'INVALID_KEY','Enter a valid Torn key.',401);const actor=await identity(env,deps,liveKey,Number(session.user_id));need(actor.factionId===Number(session.faction_id),'FACTION_CHANGED','Sign in again after changing faction.',403);verified={key:liveKey,actor,c:{id:'session-'+actor.userId,capabilities:JSON.stringify({armory:{ok:true}})}};}
-  else verified=await credential(env,deps,session,request.headers.get('X-Officer-Credential'));
+  else verified=await credential(env,deps,session,savedCredential);
   const {c,key,actor}=verified;
   if(path==='/ranked-archive/help'&&['GET','POST'].includes(request.method)){
    if(request.method==='POST')need(typeof input.enabled==='boolean','INVALID_CHOICE','Choose whether to share backfill API capacity.');
