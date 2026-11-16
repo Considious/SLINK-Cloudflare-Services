@@ -22,6 +22,10 @@
     {
       "binding": "USER_BACKUPS",
       "bucket_name": "slink-mugging-data"
+    },
+    {
+      "binding": "CRACKING_DICTIONARY",
+      "bucket_name": "slink-cracking-dictionary"
     }
   ],
   "secrets": {
