@@ -417,7 +417,30 @@ export async function muggingStatus(env) {
     return { configured:true, ...statusFromIndex(storage.index) };
 }
 
-export async function roughMuggingAssignments(env, input = {}, now = Date.now()) {
+// A manual assignment replaces the preceding set only after finding a nonempty batch.
+const MANUAL_ASSIGNMENT_TTL_MS = 15 * 60_000;
+
+export async function manualMuggingAssignments(env, input, now = Date.now()) {
+    const userId = positiveInteger(input.user_id);
+    if (!userId || !env.MUGGING_BUCKET) throw new Error('Manual assignments require a player and Mugging storage.');
+    const bucket = env.MUGGING_BUCKET;
+    const key = 'mugging/assignments/manual/v1/' + userId + '.json';
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const prior = await readJson(bucket, key, {});
+        const recent = Number(prior.value?.expires_at) > now && Array.isArray(prior.value?.target_ids);
+        const excluded = new Set(recent ? prior.value.target_ids : []);
+        const result = await roughMuggingAssignments(env, input, now, excluded);
+        if (!result.targets.length) return result;
+        const saved = await bucket.put(key, JSON.stringify({
+            expires_at:now + MANUAL_ASSIGNMENT_TTL_MS,
+            target_ids:result.targets.map(target => target.id)
+        }), { ...jsonMetadata(), onlyIf:prior.etag ? { etagMatches:prior.etag } : { etagDoesNotMatch:'*' } });
+        if (saved) return result;
+    }
+    throw new Error('Another Find Targets request is running. Try again.');
+}
+
+export async function roughMuggingAssignments(env, input = {}, now = Date.now(), excludeTargetIds = new Set()) {
     if (!env.MUGGING_BUCKET) throw new Error('The MUGGING_BUCKET binding is required.');
     const userBattleStats = finitePositive(input.user_battle_stats ?? input.userBattleStats);
     if (userBattleStats === null) throw new Error('A positive requesting-user battle-stat total is required.');
@@ -439,6 +462,10 @@ export async function roughMuggingAssignments(env, input = {}, now = Date.now())
         const targetBattleStats = finitePositive(target?.battle_stats_estimate);
         if (!id || id === userId) { excluded.invalid_or_self++; continue; }
         if (targetBattleStats !== null) estimable++;
+        if (excludeTargetIds.has(id)) {
+            excluded.recent_assignment = (excluded.recent_assignment || 0) + 1;
+            continue;
+        }
         const state = String(target?.status_state || 'Unknown');
         if (/federal/i.test(state)) { excluded.federal++; continue; }
         const statusUntilSeconds = normalizeUnixSeconds(target?.status_until);

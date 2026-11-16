@@ -1805,6 +1805,9 @@ function isLevelingDiscoveryCandidate(target, filters) {
 
 
 async function claimUserCollector(env, session, now, pollSeconds) {
+    if (Number(session?.user_id) === SOLE_ADMIN_USER_ID || session?.scopes?.includes(ADMIN_SCOPE)) {
+        return {collector:false,claimedAt:0,lastSeenAt:0,expiresAt:0,lifetimeMs:0};
+    }
     const boundedPollSeconds = boundedInteger(
         pollSeconds,
         DEFAULT_CLIENT_POLL_SECONDS,
@@ -1850,6 +1853,9 @@ async function claimUserCollector(env, session, now, pollSeconds) {
 
 
 async function readUserCollector(env, session, now) {
+    if (Number(session?.user_id) === SOLE_ADMIN_USER_ID || session?.scopes?.includes(ADMIN_SCOPE)) {
+        return {collector:false,claimedAt:0,lastSeenAt:0,expiresAt:0,lifetimeMs:0};
+    }
     const current = await env.DB
         .prepare(`
             SELECT session_id, claimed_at, last_seen_at, expires_at
@@ -2606,7 +2612,7 @@ async function handleUserDemandActivity(request, env, session) {
     const now = Date.now();
 
     // Admin testing must never keep paid-user demand alive by itself.
-    if (Number(session?.user_id) === SOLE_ADMIN_USER_ID) {
+    if (Number(session?.user_id) === SOLE_ADMIN_USER_ID || session?.scopes?.includes(ADMIN_SCOPE)) {
         return jsonResponse({
             ok: true,
             active: false,
