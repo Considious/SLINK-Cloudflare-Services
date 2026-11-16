@@ -3,11 +3,12 @@ import {
     contributorTaskAssignments,
     ingestMuggingReports,
     muggingStatus,
+    manualMuggingAssignments,
     roughMuggingAssignments,
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
-const WORKER_VERSION = '0.6.4-readable-errors';
+const WORKER_VERSION = '0.6.5-manual-assignment';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
 const textEncoder = new TextEncoder();
@@ -38,7 +39,8 @@ const worker = {
                 const session = await authorizedClient(request, env, 'slink.mugging');
                 if (!session) return unauthorized();
                 const body = await readJson(request);
-                const result = await roughMuggingAssignments(env, {
+                const assign = body.assignment_mode === 'manual' ? manualMuggingAssignments : roughMuggingAssignments;
+                const result = await assign(env, {
                     ...body,
                     user_id:session.user_id
                 }, Date.now());
@@ -51,6 +53,7 @@ const worker = {
             try {
                 const session = await authorizedClient(request, env, 'slink.mugging');
                 if (!session) return unauthorized();
+                if (session.scopes?.includes('admin.*')) return jsonResponse({ok:true,tasks:[],api_budget_per_minute:0,admin_excluded:true});
                 const body = await readJson(request);
                 const clientId = String(body?.client_id || '').trim().slice(0, 120);
                 if (!clientId) throw new RequestValidationError('client_id is required.');

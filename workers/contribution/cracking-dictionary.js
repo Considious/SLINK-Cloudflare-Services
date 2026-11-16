@@ -2,7 +2,8 @@
 const route=/^\/api\/cracking-dictionary\/v1\/(4|5|6|7|8|9|10)\/(common|dot|[A-Z0-9_])\/([0-9]|1[0-5])$/;
 const seedBase='https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/cracking-dictionary-v1/';
 async function readGitHubSeed(key,length,bucket,page){
-  const response=await fetch(seedBase+key,{redirect:'error',signal:AbortSignal.timeout(4000)});
+  // Cloudflare Workers rejects redirect mode 'error'; manual mode still rejects non-200 seeds below.
+  const response=await fetch(seedBase+key,{redirect:'manual',signal:AbortSignal.timeout(4000)});
   if(response.status===404)return null;
   if(!response.ok||!response.body)throw Error('Dictionary seed is temporarily unavailable.');
   const reader=response.body.getReader();const decoder=new TextDecoder();let bytes=0,body='';

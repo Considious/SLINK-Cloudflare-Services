@@ -67,7 +67,7 @@ describe('SLINK Contribution Service', () => {
         );
         assert.deepEqual(await health.json(), {
             ok: true,
-            version: '0.4.12-officer-work',
+            version: '0.4.14-ranked-pagination',
             database: 'connected',
             encryption_secret: 'configured',
             service_token: 'configured',
@@ -600,7 +600,7 @@ describe('SLINK Contribution Service', () => {
 
     it('executes allowlisted queued work with a rotated donated key', async () => {
         const env = createEnv();
-        globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1 });
+        globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1, userId: 4000003 });
         await worker.fetch(donationRequest('scheduler-key'), env);
         env.PERMISSIONS_DB.sqlite.prepare(`
             UPDATE donated_api_keys SET service_scope = 'slink.level'
@@ -627,10 +627,10 @@ describe('SLINK Contribution Service', () => {
             .prepare('SELECT * FROM contribution_jobs WHERE id = ?')
             .get(jobId);
         assert.equal(job.status, 'completed');
-        assert.equal(job.donor_user_id, 3853023);
+        assert.equal(job.donor_user_id, 4000003);
         assert.equal(JSON.parse(job.result_json).profile.status.state, 'Okay');
         const donor = env.PERMISSIONS_DB.sqlite
-            .prepare('SELECT * FROM donated_api_keys WHERE user_id = 3853023')
+            .prepare('SELECT * FROM donated_api_keys WHERE user_id = 4000003')
             .get();
         assert.ok(donor.last_used_at);
 
@@ -646,7 +646,7 @@ describe('SLINK Contribution Service', () => {
 
     it('runs a donated key as a prioritized virtual collector only for non-admin demand', async () => {
         const env = createEnv();
-        globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1 });
+        globalThis.fetch = tornFetch({ accessType: 'Public Only', accessLevel: 1, userId: 4000003 });
         await worker.fetch(donationRequest('virtual-key'), env);
         env.PERMISSIONS_DB.sqlite.prepare(`
             UPDATE donated_api_keys SET service_scope = 'slink.level'
@@ -693,7 +693,7 @@ describe('SLINK Contribution Service', () => {
             .prepare("SELECT * FROM virtual_collector_sessions WHERE status = 'active'")
             .get();
         assert.equal(session.service_id, 'slink.level');
-        assert.equal(session.donor_user_id, 3853023);
+        assert.equal(session.donor_user_id, 4000003);
 
         const now = Date.now();
         env.PERMISSIONS_DB.sqlite.prepare(`
@@ -767,7 +767,7 @@ describe('SLINK Contribution Service', () => {
 
     it('brokers allowlisted company API calls without exposing donated keys', async () => {
         const env = createEnv();
-        globalThis.fetch = tornFetch({ accessType:'Public Only', accessLevel:1 });
+        globalThis.fetch = tornFetch({ accessType:'Public Only', accessLevel: 1, userId: 4000003 });
         await worker.fetch(donationRequest('mugging-only-key'), env);
 
         const response = await worker.fetch(
@@ -793,13 +793,13 @@ describe('SLINK Contribution Service', () => {
         assert.ok(!JSON.stringify(body).includes('mugging-only-key'));
 
         const stored = env.PERMISSIONS_DB.sqlite.prepare(`
-            SELECT rate_window_calls FROM donated_api_keys WHERE user_id = 3853023
+            SELECT rate_window_calls FROM donated_api_keys WHERE user_id = 4000003
         `).get();
         assert.equal(stored.rate_window_calls, 1);
     });
 
 
-    it('reports aggregate mugging capacity across every active donated key', async () => {
+    it('reports aggregate mugging capacity for non-admin donated keys', async () => {
         const env = createEnv();
         globalThis.fetch = tornFetch({ accessType:'Public Only', accessLevel:1 });
         await worker.fetch(donationRequest('mugging-capacity-key'), env);
@@ -835,9 +835,9 @@ describe('SLINK Contribution Service', () => {
         );
         const body = await response.json();
         assert.equal(response.status, 200);
-        assert.equal(body.key_count, 3);
-        assert.equal(body.configured_capacity, 75);
-        assert.equal(body.available_capacity, 75);
+        assert.equal(body.key_count, 2);
+        assert.equal(body.configured_capacity, 55);
+        assert.equal(body.available_capacity, 55);
     });
 
     it('backs up and restores PDA settings without accepting credentials', async () => {

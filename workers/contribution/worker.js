@@ -2468,10 +2468,18 @@ async function loadMuggingDonors(env, now) {
         FROM donated_api_keys
         WHERE status = 'active'
           AND service_scope = ?1
+          AND NOT EXISTS (
+            SELECT 1 FROM user_scope_grants admin_grant
+            WHERE admin_grant.user_id = donated_api_keys.user_id
+              AND admin_grant.scope = 'admin.*'
+              AND admin_grant.status = 'active'
+              AND admin_grant.starts_at <= ?2
+              AND (admin_grant.expires_at IS NULL OR admin_grant.expires_at > ?2)
+          )
           AND encrypted_key IS NOT NULL
           AND encryption_iv IS NOT NULL
         ORDER BY COALESCE(last_used_at, 0) ASC, user_id ASC
-    `).bind(MUGGING_SERVICE_ID).all();
+    `).bind(MUGGING_SERVICE_ID, now).all();
     const donors = (result.results || []).map(row => {
         const sameWindow = Number(row.rate_window_started_at) === windowStartedAt;
         const limit = boundedInteger(
@@ -2749,12 +2757,20 @@ async function nextDonatedKey(env, serviceScope = 'slink.level') {
             FROM donated_api_keys
             WHERE status = 'active'
               AND service_scope = ?1
-              AND encrypted_key IS NOT NULL
+              AND NOT EXISTS (
+            SELECT 1 FROM user_scope_grants admin_grant
+            WHERE admin_grant.user_id = donated_api_keys.user_id
+              AND admin_grant.scope = 'admin.*'
+              AND admin_grant.status = 'active'
+              AND admin_grant.starts_at <= ?2
+              AND (admin_grant.expires_at IS NULL OR admin_grant.expires_at > ?2)
+          )
+          AND encrypted_key IS NOT NULL
               AND encryption_iv IS NOT NULL
             ORDER BY COALESCE(last_used_at, 0) ASC, failure_count ASC, user_id ASC
             LIMIT 1
         `)
-        .bind(serviceScope)
+        .bind(serviceScope, Date.now())
         .first();
 }
 

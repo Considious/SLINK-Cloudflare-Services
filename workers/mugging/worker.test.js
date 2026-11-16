@@ -11,6 +11,7 @@ import { ingestMuggingReports, runMuggingMonitor, testing } from './monitor-core
 import {
     ingestMuggingReports as ingestShardedReports,
     muggingStatus,
+    manualMuggingAssignments,
     contributorTaskAssignments,
     roughMuggingAssignments,
     runMuggingMonitor as runShardedMonitor,
@@ -796,3 +797,24 @@ const levelCoreSource = readFileSync(new URL('./monitor-core.js', import.meta.ur
 const levelShardedSource = readFileSync(new URL('./monitor-core-sharded.js', import.meta.url), 'utf8');
 assert.match(levelCoreSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\?\.level/);
 assert.match(levelShardedSource, /level:Math\.max\(0, Math\.trunc\(Number\(row\.target\?\.level/);
+
+it('excludes every prior manual assignment before ranking and keeps manual admin access', async () => {
+    const now=Date.now(),env={MUGGING_BUCKET:new R2BucketAdapter(),CONTRIBUTION_SERVICE_TOKEN:'test',
+        CONTRIBUTION_SERVICE:{fetch:async()=>Response.json({ok:true,user_id:999,scopes:['admin.*']})}};
+    await ingestShardedReports(env,[101,102,103,104].map(target_id=>({
+        target_id,source:'fair_fight',observed_at:now,battle_stats_estimate:500000
+    })),now);
+    const manually=(time)=>manualMuggingAssignments(env,{user_id:999,user_battle_stats:1000000,limit:2},time);
+    const first=await manually(now),second=await manually(now+1);
+    assert.equal(first.targets.length,2);
+    assert.equal(second.targets.length,2);
+    assert.equal(second.pool.excluded.recent_assignment,2);
+    assert.ok(second.targets.every(target=>!first.targets.some(previous=>previous.id===target.id)));
+    assert.deepEqual((await manually(now+15*60_000+2)).targets.map(t=>t.id),first.targets.map(t=>t.id));
+    const headers={Authorization:'Bearer synthetic','Content-Type':'application/json'};
+    const passive=await worker.fetch(new Request('https://test/api/contributor/tasks',{method:'POST',headers,body:'{}'}),env);
+    assert.equal((await passive.json()).admin_excluded,true);
+    const manual=await worker.fetch(new Request('https://test/api/assignments/rough',{method:'POST',headers,
+        body:JSON.stringify({assignment_mode:'manual',user_battle_stats:1000000,limit:2})}),env);
+    assert.equal(manual.status,200);
+});
