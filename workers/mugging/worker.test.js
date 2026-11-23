@@ -356,7 +356,7 @@ describe('SLINK Mugging Intelligence Worker', () => {
         await env.MUGGING_BUCKET.put(index, JSON.stringify({target_shards:{123:0,124:0}}));
         await env.MUGGING_BUCKET.put(shard, JSON.stringify({targets:{
             123:{mug_report_count:8,mug_value_average:950000,low_value_ratio:0.125,last_mugged_at:Date.now()-13*3600000},
-            124:{mug_count_30d:10,mug_report_count:0}
+            124:{mug_count_30d:10,mug_report_count:0,last_mugged_at:Date.now()-13*3600000}
         }}));
         const reads = [];
         const get = env.MUGGING_BUCKET.get.bind(env.MUGGING_BUCKET);
@@ -376,7 +376,9 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(scores[123].confidence, 'moderate');
         assert.equal(scores[123].sample_count, 8);
         assert.ok(scores[123].reason_codes.includes('protection_window_elapsed'));
-        assert.equal(scores[124].score, null);
+        assert.ok(Number.isInteger(scores[124].score));
+        assert.equal(scores[124].confidence, 'low');
+        assert.ok(scores[124].reason_codes.includes('no_recorded_payouts'));
         assert.equal(scores[999].score, null);
         assert.equal((await lookup([123,999])).status, 200);
         assert.deepEqual(reads, [index, shard]);
