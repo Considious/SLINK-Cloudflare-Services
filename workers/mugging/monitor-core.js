@@ -663,6 +663,7 @@ function normalizeReports(value, now) {
             source,
             mugged_at:source === 'client_mug' ? Number(row?.mugged_at ?? row?.observed_at) || now : 0,
             amount:amountValue,
+            payout_id:source === 'attack_page' && row?.payout_id ? String(row.payout_id).slice(0, 140) : '',
             observed_at:Number(row?.observed_at) || now,
             status_state:String(row?.status_state ?? row?.state ?? row?.status?.state ?? '').slice(0, 40),
             status_description:String(row?.status_description ?? row?.description ?? row?.status?.description ?? '').slice(0, 500),

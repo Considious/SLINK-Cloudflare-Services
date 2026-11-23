@@ -306,6 +306,7 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
     const dirtyShards = new Map();
     const fairFightUpdates = new Map();
     const events = [];
+    const payouts = new Map();
     const newTargetIds = [];
 
     for (const report of reports) {
@@ -345,8 +346,13 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
             target.last_checked_at = observedAt;
             target.last_seen_at = Math.max(Number(target.last_seen_at) || 0, observedAt);
         }
-        if (report.mugged_at) core.recordMug(target, report.mugged_at, report.source, report.amount, events);
-        if (report.amount !== null) core.recordMugValue(target, report.amount);
+        if (report.amount !== null) {
+            if (!payouts.has(shardNumber)) payouts.set(shardNumber, []);
+            payouts.get(shardNumber).push(report);
+        }
+        if (!report.payout_id && report.mugged_at) {
+            core.recordMug(target, report.mugged_at, report.source, null, events);
+        }
         core.applyBattleStats(target, report, now);
         target.priority_multiplier = core.priorityMultiplier(target, now);
 
@@ -360,8 +366,8 @@ export async function ingestMuggingReports(env, rawReports, now = Date.now()) {
     for (const [shardNumber, shard] of dirtyShards) {
         shard.updated_at = now;
         index.shard_summaries[String(shardNumber)] = summarizeShard(shard, now);
-        await putEstimateShard(env.MUGGING_BUCKET, stateShardKey(shardNumber), shard);
-            index.shard_summaries[String(shardNumber)] = summarizeShard(shard, now);
+        await putEstimateShard(env.MUGGING_BUCKET, stateShardKey(shardNumber), shard, payouts.get(shardNumber), now);
+        index.shard_summaries[String(shardNumber)] = summarizeShard(shard, now);
     }
     if (newTargetIds.length) {
         await registerNewFairFightTargets(env.MUGGING_BUCKET, index, newTargetIds, now);
@@ -628,7 +634,7 @@ function normalizeUnixSeconds(value) {
 }
 
 // Compare-and-swap protects estimates from stale, concurrent status-only shard writes.
-async function putEstimateShard(bucket,key,incoming){
+async function putEstimateShard(bucket,key,incoming,payouts=[],now=Date.now()){
     for(let attempt=0;attempt<4;attempt++){
         const current=await readJson(bucket,key,{targets:{}}),merged={...incoming,targets:{...(current.value.targets||{})}};
         for(const id of incoming.removed_target_ids||[])delete merged.targets[id];delete merged.removed_target_ids;
@@ -638,10 +644,32 @@ async function putEstimateShard(bucket,key,incoming){
                 if(Number(old.last_checked_at)>Number(next.last_checked_at||0))for(const field of ['status_state','status_description','status_until','level','bounty_count','bounty_total','last_checked_at'])if(field in old)row[field]=old[field];
                 const oldAt=Math.max(Number(old.battle_stats_observed_at)||0,Number(old.battle_stats_checked_at)||0,Number(old.last_success_at)||0),nextAt=Math.max(Number(next.battle_stats_observed_at)||0,Number(next.battle_stats_checked_at)||0,Number(next.last_success_at)||0);
                 if(finitePositive(old.battle_stats_estimate)!==null&&(finitePositive(next.battle_stats_estimate)===null||oldAt>nextAt))for(const field of ['battle_stats_estimate','battle_stats_observed_at','battle_stats_checked_at','battle_stats_source','fair_fight','fair_fight_checked_at','last_success_at','observed_at'])if(field in old)row[field]=old[field];
+                if (old.captured_mug_ids) {
+                    for (const field of ['captured_mug_ids','mug_report_count','mug_value_total','mug_value_average','low_value_mug_count','low_value_ratio']) {
+                        row[field] = old[field];
+                    }
+                    row.last_mugged_at = Math.max(Number(old.last_mugged_at) || 0, Number(next.last_mugged_at) || 0);
+                }
                 row.free_at=Math.max(Number(old.free_at)||0,Number(next.free_at)||0);
                 if(old.recent_mugs||next.recent_mugs)row.recent_mugs=[...new Set([...(old.recent_mugs||[]),...(next.recent_mugs||[])])].sort((a,b)=>a-b).slice(-128);
             }
             merged.targets[id]=row;
+        }
+        for (const report of payouts) {
+            const target = merged.targets[report.target_id];
+            if (!target) continue;
+            if (report.payout_id) {
+                const cutoff = now - 8 * 24 * 60 * 60 * 1000;
+                const seen = Object.fromEntries(Object.entries(target.captured_mug_ids || {}).filter(([,at]) => at >= cutoff));
+                if (Object.hasOwn(seen, report.payout_id)) continue;
+                target.captured_mug_ids = {...seen,[report.payout_id]:report.observed_at};
+                const freeAt = Number(target.free_at) || 0;
+                core.recordMug(target, report.observed_at, report.source, report.amount, []);
+                target.free_at = Math.max(freeAt, target.free_at);
+            } else {
+                core.recordMugValue(target, report.amount);
+            }
+            target.priority_multiplier = core.priorityMultiplier(target, now);
         }
         if(await bucket.put(key,JSON.stringify(merged),{...jsonMetadata(),onlyIf:current.etag?{etagMatches:current.etag}:{etagDoesNotMatch:'*'}})){const targets=incoming.targets||{};for(const[id,row]of Object.entries(merged.targets))if(targets[id])Object.assign(targets[id],row);else targets[id]=row;Object.assign(incoming,merged,{targets});return;}
     }

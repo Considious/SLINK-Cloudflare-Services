@@ -15,9 +15,9 @@ import {handleCrimeRecipes} from './crime-recipes.js';
 import {handleCrackingDictionary,contributeCracking} from './cracking-dictionary.js';
 import {handleFactionNode} from '../faction-node/central.js';
 const WORKER_VERSION = '0.4.14-ranked-pagination';
-const DATA_TERMS_VERSION = '2026-11-01';
+const DATA_TERMS_VERSION = '2026-11-23';
 const DATA_TERMS_SHA256 =
-    '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
+    '09593f5e51ade7079278b8c3f437782dd05837d0c514550610d725890a03390f';
 const DATA_TERMS_URL =
     'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/' +
     'terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
@@ -36,7 +36,7 @@ const OFFICER_MANAGED_SCOPES = Object.freeze([
     'slink.officer.oc'
 ]);
 const TERMS_VERSION = DATA_TERMS_VERSION;
-const TERMS_EFFECTIVE_AT = '2026-11-01';
+const TERMS_EFFECTIVE_AT = '2026-11-23';
 const TERMS_URL = DATA_TERMS_URL;
 const TERMS_DOCUMENT_SHA256 =
     DATA_TERMS_SHA256;
@@ -964,6 +964,8 @@ async function handleInternalPermissionSession(request, env) {
             user_name:String(session.user_name || ''),
             faction_id:Math.max(0, Number(session.faction_id) || 0),
             faction_position:String(session.faction_position || ''),
+            terms_version:DATA_TERMS_VERSION,
+            terms_sha256:DATA_TERMS_SHA256,
             roles:resolved.roles,
             scopes:resolved.scopes,
             scope_sources:resolved.scopeSources,

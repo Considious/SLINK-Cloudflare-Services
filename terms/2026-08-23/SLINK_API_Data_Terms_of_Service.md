@@ -5,9 +5,9 @@ Browser Extension · PDA Userscript · Shared Services · Data Infrastructure
 
 **Operator:** Considious [3853023]  
 **Faction:** [())))))] ("Slinky's") [46978]  
-**Policy version:** 2026-11-01  
-**Effective date:** November 1, 2026  
-**Last updated:** November 1, 2026
+**Policy version:** 2026-11-23  
+**Effective date:** November 23, 2026  
+**Last updated:** November 23, 2026
 
 ## Plain-language summary
 
@@ -127,6 +127,14 @@ data can include public or authorized player and faction details, current
 status, hospitalization timing, activity indicators, attack or retaliation
 opportunities, target history, Fair Fight or battle-stat estimates, competition
 measurements, scheduling information, and deduplication identifiers.
+
+When Mugging is enabled, SLINK can send confirmed mug payouts shown in the
+player's Torn attack result to the shared Mugging Worker. Each report includes
+the target's Torn player ID, observed result time, amount stolen in Torn cash,
+and an identifier used to prevent duplicate counting. The server uses these
+reports to update target payout counts and totals for Mugging Score. Authorized
+users receive score summaries. Raw payout reports and contributor identities
+are not included in those summaries.
 
 Live alerts and coordination records may be temporary. Target intelligence,
 estimates, historical observations, aggregate counters, scheduling state, and

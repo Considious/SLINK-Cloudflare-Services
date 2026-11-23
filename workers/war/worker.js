@@ -22,8 +22,8 @@ import {
 
 const WORKER_VERSION = '0.8.7-readable-errors';
 const SLINKY_FACTION_ID = 46978;
-const TERMS_VERSION = '2026-11-01';
-const TERMS_SHA256 = '78f79d9d0f651932c1c9d68eeb76df09f7b02e19880edaeba3d93c33e0205797';
+const TERMS_VERSION = '2026-11-23';
+const TERMS_SHA256 = '09593f5e51ade7079278b8c3f437782dd05837d0c514550610d725890a03390f';
 const TERMS_URL = 'https://github.com/Considious/SLINK-Cloudflare-Services/blob/main/terms/2026-08-23/SLINK_API_Data_Terms_of_Service.md';
 const SESSION_LIFETIME_SECONDS = 2 * 60 * 60;
 const MAX_BODY_BYTES = 256 * 1024;

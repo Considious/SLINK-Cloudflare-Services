@@ -16,6 +16,8 @@ let scoreLimitWindow = 0;
 const WORKER_VERSION = '0.6.5-manual-assignment';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
+const PAYOUT_TERMS_VERSION = '2026-11-23';
+const PAYOUT_TERMS_SHA = '09593f5e51ade7079278b8c3f437782dd05837d0c514550610d725890a03390f';
 const textEncoder = new TextEncoder();
 
 const worker = {
@@ -107,14 +109,22 @@ const worker = {
                 const clientId = String(body?.client_id || '').trim().slice(0, 120);
                 if (!clientId) throw new RequestValidationError('client_id is required.');
                 const input = Array.isArray(body?.reports) ? body.reports.slice(0, MAX_REPORTS) : [];
-                const reports = normalizeContributorReports(input, clientId, session.user_id, Date.now());
+                if (input.some(row => row?.payout_id != null) &&
+                    (session.terms_version !== PAYOUT_TERMS_VERSION || session.terms_sha256 !== PAYOUT_TERMS_SHA)) {
+                    return jsonResponse({ok:false,error:'Accept the current SLINK data terms to send mug payouts.'}, 428);
+                }
+                const now = Date.now();
+                const expiredPayoutIds = input.filter(row => row?.payout_id && Number.isSafeInteger(row.observed_at) &&
+                    row.observed_at < now - 7 * 24 * 60 * 60 * 1000).map(row => String(row.report_id || row.payout_id).slice(0,160));
+                const reports = normalizeContributorReports(input, clientId, session.user_id, now);
                 const result = await ingestMuggingReports(env, reports, Date.now());
                 return jsonResponse({
                     ok:true,
                     version:WORKER_VERSION,
                     submitted:input.length,
                     ignored:input.length - reports.length,
-                    ...result
+                    ...result,
+                    acknowledged_report_ids:[...result.acknowledged_report_ids, ...expiredPayoutIds]
                 });
             } catch (error) {
                 return requestError(error);
@@ -308,6 +318,20 @@ function normalizeContributorReports(rows, clientId, userId, now) {
     for (const row of rows) {
         const targetId = positiveInteger(row?.target_id ?? row?.player_id ?? row?.playerId);
         if (!targetId || targetId === callerId) continue;
+        if (row?.payout_id != null) {
+            const id = String(row.payout_id);
+            const amount = row.amount;
+            const at = row.observed_at;
+            if (!/^(?:attack:[a-zA-Z0-9_-]{8,96}|local:[a-f0-9-]{36})$/.test(id) ||
+                !Number.isSafeInteger(amount) || amount < 0 ||
+                !Number.isSafeInteger(at) || at < minimumObservedAt || at > now + 60_000) continue;
+            reports.push({
+                target_id:targetId, observed_at:Math.min(now, at), source:'attack_page',
+                amount, payout_id:id.startsWith('local:') ? callerId + ':' + id : id,
+                report_id:String(row.report_id || id).slice(0, 160)
+            });
+            continue;
+        }
         const observedAt = Math.min(now, Math.max(minimumObservedAt, Number(row?.observed_at ?? row?.observedAt) || now));
         const reportId = String(row?.report_id || `${clientId}:${targetId}:${Math.trunc(observedAt)}`).trim().slice(0, 160);
         reports.push({

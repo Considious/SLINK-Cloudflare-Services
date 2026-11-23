@@ -345,6 +345,35 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(body.personal_assignments_allowed, false);
     });
 
+    it('requires renewed consent and counts a captured payout once across repeated reports', async () => {
+        const env = createEnv();
+        let accepted = false;
+        env.CONTRIBUTION_SERVICE = {async fetch() {
+            return Response.json({ok:true,user_id:981,scopes:['slink.mugging'],
+                terms_version:accepted ? '2026-11-23' : '2026-11-01',
+                terms_sha256:'09593f5e51ade7079278b8c3f437782dd05837d0c514550610d725890a03390f'});
+        }};
+        const first = {player_id:500, observed_at:Date.now()-1000, amount:200000, payout_id:'local:00000000-0000-4000-8000-000000000001'};
+        const second = {...first, amount:800000, observed_at:first.observed_at+100,payout_id:'local:00000000-0000-4000-8000-000000000002'};
+        const submit = rows => worker.fetch(new Request('https://mugging.example/api/contributor/reports', {
+            method:'POST',headers:{Authorization:'Bearer permission-session', 'Content-Type':'application/json'},
+            body:JSON.stringify({client_id:'capture-test',reports:rows})
+        }),env);
+        assert.equal((await submit([first])).status,428);
+        accepted = true;
+        assert.equal((await submit([first,first,second])).status,200);
+        const retry = await submit([first]);
+        assert.equal(retry.status,200);
+        assert.deepEqual((await retry.json()).acknowledged_report_ids,[first.payout_id]);
+        const index = await (await env.MUGGING_BUCKET.get('mugging/state/v2/index.json')).json();
+        const shardKey = 'mugging/state/v2/targets/shard-' + String(index.target_shards[500]).padStart(2,'0') + '.json';
+        const record = (await (await env.MUGGING_BUCKET.get(shardKey)).json()).targets[500];
+        assert.equal(record.mug_report_count,2);
+        assert.equal(record.mug_value_total,1000000);
+        assert.equal(record.mug_value_average,500000);
+        assert.equal(record.low_value_mug_count,1);
+    });
+
     it('authenticates arbitrary score lookups and reads only requested shards', async () => {
         const env = createEnv();
         env.CONTRIBUTION_SERVICE = {
