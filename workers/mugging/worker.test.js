@@ -345,6 +345,43 @@ describe('SLINK Mugging Intelligence Worker', () => {
         assert.equal(body.personal_assignments_allowed, false);
     });
 
+    it('authenticates arbitrary score lookups and reads only requested shards', async () => {
+        const env = createEnv();
+        env.CONTRIBUTION_SERVICE = {
+            async fetch() { return Response.json({ok:true,user_id:981,scopes:['slink.mugging']}); }
+        };
+        const prefix = 'mugging/state/v2/';
+        const index = prefix + 'index.json';
+        const shard = prefix + 'targets/shard-00.json';
+        await env.MUGGING_BUCKET.put(index, JSON.stringify({target_shards:{123:0,124:0}}));
+        await env.MUGGING_BUCKET.put(shard, JSON.stringify({targets:{
+            123:{mug_report_count:8,mug_value_average:950000,low_value_ratio:0.125,last_mugged_at:Date.now()-13*3600000},
+            124:{mug_count_30d:10,mug_report_count:0}
+        }}));
+        const reads = [];
+        const get = env.MUGGING_BUCKET.get.bind(env.MUGGING_BUCKET);
+        env.MUGGING_BUCKET.get = key => { reads.push(key); return get(key); };
+        const lookup = (ids, token = 'permission-session') => worker.fetch(new Request('https://mugging.example/api/targets/scores', {
+            method:'POST',headers:{Authorization:token ? 'Bearer ' + token : '', 'Content-Type':'application/json'},
+            body:JSON.stringify({player_ids:ids})
+        }), env);
+        assert.equal((await lookup([123], '')).status, 401);
+        for (const ids of [[], ['123'], [-1], Array.from({length:101}, (_, i) => i + 1)]) {
+            assert.equal((await lookup(ids)).status, 400);
+        }
+        const response = await lookup([123,123,124,999]);
+        assert.equal(response.status, 200);
+        const {scores} = await response.json();
+        assert.deepEqual(Object.keys(scores), ['123','124','999']);
+        assert.equal(scores[123].confidence, 'moderate');
+        assert.equal(scores[123].sample_count, 8);
+        assert.ok(scores[123].reason_codes.includes('protection_window_elapsed'));
+        assert.equal(scores[124].score, null);
+        assert.equal(scores[999].score, null);
+        assert.equal((await lookup([123,999])).status, 200);
+        assert.deepEqual(reads, [index, shard]);
+    });
+
     it('serves rough assignments only through a live slink.mugging permission session', async () => {
         const env = createEnv();
         env.CONTRIBUTION_SERVICE = {

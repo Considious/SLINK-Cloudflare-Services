@@ -1,3 +1,4 @@
+import { scoreTarget } from './target-score.js';
 import { testing as core } from './monitor-core.js';
 
 const LEGACY_STATE_KEY = 'mugging/state/v1.json';
@@ -1219,3 +1220,40 @@ export const testing = Object.freeze({
     stateShardForCompany,
     stateShardForTarget
 });
+
+const scoreCache = new WeakMap();
+const SCORE_TTL_MS = 30_000;
+export async function lookupTargetScores(bucket, ids, now) {
+    if (!bucket) throw new Error('Mugging storage is unavailable.');
+    let cache = scoreCache.get(bucket);
+    if (!cache || now >= cache.expires) {
+        cache = { expires:now + SCORE_TTL_MS, scores:new Map(), index:null };
+        scoreCache.set(bucket, cache);
+    }
+    const scores = {};
+    const pending = ids.filter(id => !cache.scores.has(id));
+    if (pending.length) {
+        cache.index ??= await readJson(bucket, INDEX_KEY, null);
+        const {value:index} = cache.index;
+        const groups = new Map();
+        for (const id of pending) {
+            const shard = index?.target_shards?.[id];
+            if (!Number.isInteger(shard) || shard < 0 || shard >= STATE_SHARD_COUNT) {
+                cache.scores.set(id, scoreTarget(null, now));
+                continue;
+            }
+            if (!groups.has(shard)) groups.set(shard, []);
+            groups.get(shard).push(id);
+        }
+        const entries = [...groups];
+        for (let offset = 0; offset < entries.length; offset += 4) {
+            await Promise.all(entries.slice(offset, offset + 4).map(async ([shard, players]) => {
+                const {targets} = await loadStateShard(bucket, shard);
+                for (const id of players) cache.scores.set(id, scoreTarget(targets[id], now));
+            }));
+        }
+    }
+    for (const id of ids) scores[id] = cache.scores.get(id);
+    while (cache.scores.size > 5000) cache.scores.delete(cache.scores.keys().next().value);
+    return scores;
+}

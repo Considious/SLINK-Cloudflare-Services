@@ -3,11 +3,16 @@ import {
     contributorTaskAssignments,
     ingestMuggingReports,
     muggingStatus,
+    lookupTargetScores,
     manualMuggingAssignments,
     roughMuggingAssignments,
     runMuggingMonitor
 } from './monitor-core-sharded.js';
 
+import { SCORE_BATCH_LIMIT } from './target-score.js';
+
+const scoreLimits = new Map();
+let scoreLimitWindow = 0;
 const WORKER_VERSION = '0.6.5-manual-assignment';
 const CONTRIBUTION_BATCH_SIZE = 40;
 const MAX_REPORTS = 100;
@@ -30,6 +35,33 @@ const worker = {
         if (url.pathname === '/api/health' && request.method === 'GET') {
             try {
                 return jsonResponse({ ok:true, version:WORKER_VERSION, ffscouter_configured:Boolean(env.FFSCOUTER_API_KEY), ...await muggingStatus(env) });
+            } catch (error) {
+                return requestError(error);
+            }
+        }
+        if (url.pathname === '/api/targets/scores' && request.method === 'POST') {
+            try {
+                const session = await authorizedClient(request, env, 'slink.mugging');
+                if (!session) return unauthorized();
+                const body = await readJson(request);
+                const ids = body?.player_ids;
+                if (!Array.isArray(ids) || !ids.length || ids.length > SCORE_BATCH_LIMIT ||
+                    ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+                    throw new RequestValidationError('Supply 1 to 100 numeric Torn player IDs.');
+                }
+                const now = Date.now();
+                const window = Math.floor(now / 60_000);
+                if (window !== scoreLimitWindow) {
+                    scoreLimits.clear();
+                    scoreLimitWindow = window;
+                }
+                const count = scoreLimits.get(session.user_id) || 0;
+                if (count >= 30 || (!count && scoreLimits.size >= 4096)) {
+                    return jsonResponse({ok:false,error:'Score lookup limit reached. Try again in a minute.'}, 429);
+                }
+                scoreLimits.set(session.user_id, count + 1);
+                const scores = await lookupTargetScores(env.MUGGING_BUCKET, [...new Set(ids)], now);
+                return jsonResponse({ok:true, generated_at:now, scores});
             } catch (error) {
                 return requestError(error);
             }
