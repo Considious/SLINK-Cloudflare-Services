@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "slink-agent-assets",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-25",
+  "workers_dev": true,
+  "preview_urls": false,
+  "r2_buckets": [
+    {
+      "binding": "GRAPHICS_ASSETS",
+      "bucket_name": "slink-graphics-assets"
+    }
+  ]
+}
