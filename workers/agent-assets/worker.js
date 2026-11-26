@@ -121,7 +121,7 @@ export default {
     const authError = await uploadCredentialError(request, env.ASSET_UPLOAD_TOKEN_SHA256);
     if (authError) {
       return json({ ok: false, error: 'Supply an artwork upload password or valid GitHub workflow identity.' },
-        authError === 'github-keys-unavailable' ? 503 : 401,
+        authError.startsWith('github-keys-') ? 503 : 401,
         { 'WWW-Authenticate': 'Bearer', 'X-SLINK-Upload-Auth': authError });
     }
     if (isHealth && request.method === 'GET') return json({ ok: true, service: 'slink-agent-assets', maxBytes });

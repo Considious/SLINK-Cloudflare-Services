@@ -14,13 +14,34 @@ function decodePart(value) {
   return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
+class SigningKeyError extends Error {
+  constructor(code, cause) {
+    super(code, { cause });
+    this.code = 'github-keys-' + code;
+  }
+}
+
 async function fetchKeys() {
-  const reply = await fetch(issuer + '/.well-known/jwks', {
-    headers: { Accept: 'application/json', 'User-Agent': 'SLINK-Agent-Assets/1.0' }, redirect: 'error', signal: AbortSignal.timeout(5000)
-  });
-  if (!reply.ok) throw new Error('GitHub signing keys unavailable');
-  const body = await reply.json();
-  if (!Array.isArray(body.keys)) throw new Error('Invalid GitHub signing keys');
+  let reply;
+  try {
+    reply = await fetch(issuer + '/.well-known/jwks', {
+      headers: { Accept: 'application/json', 'User-Agent': 'SLINK-Agent-Assets/1.0' },
+      redirect: 'manual', signal: AbortSignal.timeout(5000)
+    });
+  } catch (error) {
+    throw new SigningKeyError('request-failed', error);
+  }
+  if (!reply.ok) {
+    await reply.body?.cancel();
+    throw new SigningKeyError('http-' + reply.status);
+  }
+  let body;
+  try {
+    body = await reply.json();
+  } catch (error) {
+    throw new SigningKeyError('invalid-json', error);
+  }
+  if (!Array.isArray(body?.keys)) throw new SigningKeyError('invalid-key-set');
   return body.keys;
 }
 
@@ -60,8 +81,13 @@ export async function artworkWorkflowError(token, loadKeys = githubKeys, now = M
     let keys;
     try {
       keys = await loadKeys();
-    } catch {
-      return 'github-keys-unavailable';
+    } catch (error) {
+      const code = error instanceof SigningKeyError ? error.code : 'github-keys-unavailable';
+      // Only report details from the fixed public signing-key request.
+      const detail = typeof error?.cause?.message === 'string' ? error.cause.message.slice(0, 250) : '';
+      console.error('Artwork GitHub signing-key fetch failed', code, detail);
+      const label = detail.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 96);
+      return label && code === 'github-keys-request-failed' ? code + '-' + label : code;
     }
     const jwk = keys.find(key => key.kid === header.kid && key.kty === 'RSA' && key.use === 'sig');
     if (!jwk) return 'github-key-not-found';

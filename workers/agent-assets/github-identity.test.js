@@ -36,3 +36,8 @@ test('accepts only a signed, current identity for the designated upload workflow
   const [header, payload] = jwt().split('.');
   assert.equal(await artworkWorkflowError(header + '.' + payload + '.AAAA', keys, now), 'github-signature');
 });
+
+test('reports the upstream status when the GitHub signing key fetch fails', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 403 }));
+  assert.equal(await artworkWorkflowError(jwt(), undefined, now), 'github-keys-http-403');
+});
