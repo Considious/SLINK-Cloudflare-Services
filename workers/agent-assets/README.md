@@ -93,7 +93,7 @@ All research routes are read-only, fixed-origin, and no-store.
 | /v1/research/faction/46978 | Combined JSON, with current Torn member IDs and per-provider coverage |
 | /v1/research/faction/46978/export.xlsx | Excel workbook, with rarity fills, stat and loadout timestamps, equipment detail and artwork URLs |
 
-The roster sheet keeps player ID, numeric estimated stats, stats updated and loadout observed dates, loadout coverage, and equipped items. Missing stat estimates are blank. Dates use UTC calendar days and real Excel date cells displayed as month day, year (no time). The detailed equipment and artwork tabs are retained.
+The roster sheet keeps player ID, numeric estimated stats, stats updated and loadout observed dates, Torn Stats spy total/date, six ranked-war member scores, historical loadout note, and equipped items. Missing stat estimates are blank. Dates use UTC calendar days and real Excel date cells displayed as month day, year (no time). The detailed equipment tab is retained; the artwork tab is removed.
 
 The faction ID above is an example, not a default. The export uses Torn as
 the roster source and joins by numeric player ID. KAL's faction snapshot
@@ -109,7 +109,7 @@ curl --fail-with-body -H "Authorization: Bearer ${SLINK_RESEARCH_TOKEN}" \
   --output faction-46978.xlsx
 ```
 
-Append ?images=true to the Excel export route for an additional Preview column in Item artwork. The previews use the Excel IMAGE function (Excel for Microsoft 365 or Excel 2024, external images permitted). They are not embedded; the default export includes links only for compatibility. No API credentials are used in the image URLs.
+The legacy images query option remains accepted but is ignored; no artwork tab is generated.
 
 Run npm test before merging. The Worker does not create any new R2 bucket,
 database or scheduled task. The research Workflow below is on demand; use provider quotas
@@ -158,3 +158,7 @@ Large JSON (not XLSX) is gzip+base64 encoded; if compressed JSON exceeds the
 700 KiB result budget, use smaller requests. Workflow results are retained
 according to Cloudflare account/instance settings.
 Provider errors are not automatically retried to avoid consuming API quotas.
+
+### Export enrichment
+
+The existing TORNSTATS_API_KEY secret enables the faction spy lookup. Spy totals and dates are distinct from FFScouter estimates. The export retrieves up to six completed ranked wars and member scores, newest first, with the war order in Read me. A missing score is shown as an em dash, not a fabricated zero. If the only observed weapon is a Pillow, the export checks the next older distinct KAL loadout (up to eight eligible members per export to stay within the free Worker request budget). Historical selections are labeled and retain their own date. Provider failures are documented on Read me rather than preventing an otherwise valid export.

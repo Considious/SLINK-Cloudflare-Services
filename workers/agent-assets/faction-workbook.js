@@ -22,17 +22,15 @@ const itemText = item => item ? [item.name || 'Unknown item', ...(item.bonuses |
 const slotNames = ['primary','secondary','melee','temporary','helmet','body','pants','boots','gloves'];
 function col(i) { let x=''; for(i++;i;i=Math.floor((i-1)/26)) x=String.fromCharCode(65+(i-1)%26)+x; return x; }
 function cell(value, r, i) {
-  const {v,s,preview}=value && typeof value === 'object' ? value : c(value);
+  const {v,s}=value && typeof value === 'object' ? value : c(value);
   const ref=col(i)+r;
-  // Only a generated artwork cell may contain a formula; no provider data becomes formula source.
-  if (preview === true && i === 3) return '<c r="'+ref+'" s="0"><f>IFERROR(_xlfn.IMAGE(C'+r+',B'+r+',0),&quot;Image unavailable&quot;)</f></c>';
   if (typeof v==='number' && Number.isFinite(v)) return '<c r="'+ref+'" s="'+s+'"><v>'+v+'</v></c>';
   return '<c r="'+ref+'" s="'+s+'" t="inlineStr"><is><t xml:space="preserve">'+xml(String(v??'').slice(0,32767))+'</t></is></c>';
 }
 function worksheet(headers,widths,rows) {
   const all=[headers.map(h=>c(h,1)),...rows];
   const end=col(headers.length-1)+all.length;
-  return declaration+'<worksheet xmlns="'+ns+'"><dimension ref="A1:'+end+'"/><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols><sheetData>'+all.map((row,i)=>'<row r="'+(i+1)+'" ht="'+(i===0?28:Math.min(100,Math.max(row.some(x=>x?.preview===true)?80:22,...row.map(x=>String(x?.v??x??'').split('\n').length*15+7))))+'" customHeight="1">'+row.map((x,j)=>cell(x,i+1,j)).join('')+'</row>').join('')+'</sheetData><autoFilter ref="A1:'+end+'"/></worksheet>';
+  return declaration+'<worksheet xmlns="'+ns+'"><dimension ref="A1:'+end+'"/><sheetViews><sheetView workbookViewId="0"><pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>'+widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols><sheetData>'+all.map((row,i)=>'<row r="'+(i+1)+'" ht="'+(i===0?28:Math.min(100,Math.max(22,...row.map(x=>String(x?.v??x??'').split('\n').length*15+7))))+'" customHeight="1">'+row.map((x,j)=>cell(x,i+1,j)).join('')+'</row>').join('')+'</sheetData><autoFilter ref="A1:'+end+'"/></worksheet>';
 }
 const fill = color=>'<fill><patternFill patternType="solid"><fgColor rgb="FF'+color+'"/><bgColor indexed="64"/></patternFill></fill>';
 const xf = (fontId,fillId,numFmtId=0)=>'<xf numFmtId="'+numFmtId+'" fontId="'+fontId+'" fillId="'+fillId+'" borderId="0" xfId="0" applyAlignment="1" applyFill="1" applyFont="1" applyNumberFormat="1"><alignment vertical="center" wrapText="1"/></xf>';
@@ -51,22 +49,21 @@ function zip(files) {
   const end=new Uint8Array(22), d=new DataView(end.buffer);d.setUint32(0,0x06054b50,true);d.setUint16(8,central.length,true);d.setUint16(10,central.length,true);d.setUint32(12,centralSize,true);d.setUint32(16,offset,true);
   const out=new Uint8Array(offset+centralSize+end.length);let pos=0;for(const block of [...blocks,...central,end]){out.set(block,pos);pos+=block.length;}return out;
 }
-export function factionWorkbook(report, {images=false}={}) {
-  const overview=[],equipment=[],catalog=new Map();
+export function factionWorkbook(report) {
+  const overview=[],equipment=[];
   for(const m of report.members) {
     const items=m.loadout?.equipment || [], bySlot=new Map(items.map(x=>[x.slot_name,x]));
-    overview.push([m.name,m.player_id,c(number(m.stats?.bs_estimate),2),date(m.stats?.last_updated),date(m.loadout?.observed_at),m.loadout_status,...slotNames.map(s=>c(itemText(bySlot.get(s)),cellStyle(bySlot.get(s))))]);
+    overview.push([m.name,m.player_id,c(number(m.stats?.bs_estimate),2),date(m.stats?.last_updated),c(number(m.spy?.total),2),date(m.spy?.timestamp),(m.war_scores||[]).map(v=>v==null?'—':Number(v).toLocaleString('en-US',{maximumFractionDigits:2})).join(' | '),date(m.loadout?.observed_at),m.historical_loadout?'Historical (pillow fallback)':'',...slotNames.map(s=>c(itemText(bySlot.get(s)),cellStyle(bySlot.get(s))))]);
     for(const item of items) {
       equipment.push([m.name,m.player_id,item.slot_name || item.slot,c(item.name,cellStyle(item)),item.rarity,item.id,item.stats?.damage,item.stats?.accuracy,item.stats?.armor,item.stats?.quality,bonusText(item),item.ammo?.type,(item.mods||[]).map(x=>x.name||x.id).join('\n'),item.effect,(item.blocked_effects||[]).map(x=>typeof x==='object'?JSON.stringify(x):x).join('\n'),date(m.loadout?.observed_at)]);
-      if(Number.isSafeInteger(Number(item.id)) && Number(item.id)>0)catalog.set(Number(item.id),item.name||'Unknown item');
     }
   }
-  const info=[['Faction ID',report.faction_id],['Faction name (KAL)',report.faction_name],['Retrieved (UTC)',report.fetched_at],['Roster source','Official Torn API; only current members included.'],['Stat source','FFScouter estimated total battle stats, not verified actual stats or individual attributes. Missing estimates are blank. Date columns use UTC calendar dates.'],['Loadout source','KAL last visible observation, not live gear. Missing entries do not mean unarmed.'],['KAL stored roster observation',date(report.kal_roster_observed_at)],['Yellow',c('Yellow ranked rarity',3)],['Orange',c('Orange ranked rarity',4)],['Red',c('Red ranked rarity',5)],['No fill','Unranked or unspecified rarity.'],['Provider documentation','https://www.torn.com/swagger.php | https://kalends.dev/api-docs | https://ffscouter.com/'],['Item artwork','Artwork tab lists public Torn base-item image links. Optional previews use Excel IMAGE and require a compatible Excel version and permission for external images; they are not embedded.']];
-  for(const w of report.warnings||[])info.push([w.provider||'Warning',[w.code,w.message,w.endpoint,w.upstream_status,w.upstream_code,w.player_id == null ? null : 'Player '+w.player_id].filter(x=>x!=null).join(' | ')]);
+  const info=[['Faction ID',report.faction_id],['Faction name (KAL)',report.faction_name],['Retrieved (UTC)',report.fetched_at],['Roster source','Official Torn API; only current members included.'],['Stat source','FFScouter estimated total battle stats, not verified actual stats or individual attributes. Missing estimates are blank. Date columns use UTC calendar dates.'],['Loadout source','KAL saved observations, not live gear. Missing entries do not mean unarmed.'],['KAL stored roster observation',date(report.kal_roster_observed_at)],['Yellow',c('Yellow ranked rarity',3)],['Orange',c('Orange ranked rarity',4)],['Red',c('Red ranked rarity',5)],['No fill','Unranked or unspecified rarity.'],['Provider documentation','https://www.torn.com/swagger.php | https://kalends.dev/api-docs | https://ffscouter.com/'],['Torn Stats','Recorded spy totals, not current estimates; missing spies are blank.'],['Ranked war points','Last six completed faction wars, newest first. — means player not listed or data unavailable; 0 is a recorded zero.'],['Loadout note','Historical (pillow fallback) identifies the next older saved combat loadout; observation date belongs to that loadout.']];
+  for(const [i,war] of (report.wars||[]).entries())info.push(['War '+(i+1),[war.opponent||'Opponent unknown','ID '+war.id,new Date(war.end*1000).toISOString().slice(0,10)].join(' | ')]);
+  for(const w of report.warnings||[])info.push([w.provider||'Warning',[w.code,w.message,w.endpoint,w.upstream_status,w.upstream_code,w.war_id==null?null:'War '+w.war_id,w.player_id == null ? null : 'Player '+w.player_id].filter(x=>x!=null).join(' | ')]);
   const sheets=[
-    ['Faction roster', ['Player','Player ID','Estimated stats','Stats updated','Loadout observed','Loadout coverage',...slotNames.map(s=>s[0].toUpperCase()+s.slice(1))],[25,15,19,23,23,24,...slotNames.map(()=>28)],overview],
+    ['Faction roster', ['Player','Player ID','FFScouter estimate','Stats updated','Torn Stats total','Spy date','Last 6 wars (points)','Loadout observed','Loadout note',...slotNames.map(s=>s[0].toUpperCase()+s.slice(1))],[25,15,19,23,19,23,54,23,29,...slotNames.map(()=>28)],overview],
     ['Equipment details',['Player','Player ID','Slot','Item','Rarity','Item ID','Damage','Accuracy','Armor','Quality','Bonuses','Ammo','Mods','Effect','Blocked effects','Observed date'],[25,15,15,28,13,12,11,11,11,11,48,17,28,25,30,25],equipment],
-    ['Item artwork',['Item ID','Item name','Public Torn image URL',...(images?['Preview']:[])],[15,32,80,...(images?[26]:[])],[...catalog.entries()].sort((a,b)=>a[0]-b[0]).map(([id,name])=>[id,name,'https://www.torn.com/images/items/'+id+'/large.png',...(images?[{preview:true}]:[])])],
     ['Read me',['Field','Explanation'],[32,105],info]
   ];
   const files={

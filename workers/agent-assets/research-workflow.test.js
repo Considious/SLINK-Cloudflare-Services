@@ -11,7 +11,7 @@ const env={TORN_API_KEY:'torn-fixture',KAL_API_KEY:'kal-fixture',FFSCOUTER_API_K
 const fail=()=>{throw Error('Unexpected network call');};
 test('workflow health needs no research bearer; HTTP route still fails closed',async()=>{
   const r=await runResearchJob({operation:'health'},env,fail);
-  assert.deepEqual(r,{ok:true,format:'json',data:{ok:true,configured:{torn:true,kal:true,ffscouter:true}}});
+  assert.deepEqual(r,{ok:true,format:'json',data:{ok:true,configured:{torn:true,kal:true,ffscouter:true,tornstats:false}}});
   assert.equal((await worker.fetch(new Request('https://example.com/v1/research/health'),env)).status,503);
 });
 test('workflow rejects unsupported operations, external URLs, injected paths and credentials',async()=>{
@@ -36,6 +36,7 @@ test('workflow generates the existing XLSX and an expiring private R2 download l
   const exportEnv={...env,GRAPHICS_ASSETS:bucket,RESEARCH_DOWNLOAD_ORIGIN:'https://example.com'};
   const result=await runResearchJob({operation:'faction_export',faction_id:123,images:true},exportEnv,async(url)=>{
     const u=new URL(url);
+    if(u.hostname==='api.torn.com'&&u.pathname.endsWith('/rankedwars'))return Response.json({rankedwars:[]});
     if(u.hostname==='api.torn.com')return Response.json({members:[{id:1,name:'Example'}]});
     if(u.hostname==='ffscouter.com')return Response.json([{player_id:1,bs_estimate:12345}]);
     return Response.json({name:'Faction',members:[{user_id:1,loadout:{equipment:[{id:398,name:'SIG',rarity:'orange',slot_name:'primary'}]}}]});
@@ -50,7 +51,7 @@ test('workflow generates the existing XLSX and an expiring private R2 download l
   assert.match(response.headers.get('Cache-Control'),/no-store/);
   const bytes=Buffer.from(await response.arrayBuffer());
   assert.equal(bytes.length,result.bytes);assert.equal(bytes.readUInt32LE(0),0x04034b50);
-  assert.ok(bytes.includes(Buffer.from('_xlfn.IMAGE')));
+  assert.ok(!bytes.includes(Buffer.from('Item artwork')));
   const expired=await downloadResearchExport(new Request(url),exportEnv,Date.parse(result.expires_at));
   assert.equal(expired.status,410);
   assert.equal((await worker.fetch(new Request('https://example.com/v1/research-download/'+'a'.repeat(64)),exportEnv)).status,404);

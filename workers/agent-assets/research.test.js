@@ -16,6 +16,7 @@ function mocked(calls, options={}) {
   return async (url,init)=>{
     const u=new URL(url);
     calls.push({u,init});
+    if(u.hostname==='api.torn.com'&&u.pathname.endsWith('/rankedwars'))return json({rankedwars:[]});
     if(u.hostname==='api.torn.com')return json({members:[{id:1,name:'=not a formula',level:10},{id:2,name:'Second',level:20},{id:3,name:'Third'}]});
     if(u.hostname==='ffscouter.com')return options.ffError?json({error:'bad key '+env.FFSCOUTER_API_KEY,code:2},401):json([{player_id:2,bs_estimate:1000,fair_fight:1.5,last_updated:1786331700},{player_id:1,bs_estimate:2000}]);
     if(u.pathname==='/faction/123/loadouts')return json({name:'Test faction',members_observed_at:1786331700,members:[{user_id:1,loadout:{observed_at:1786331700,equipment:[equipment]}},{user_id:2,loadout:null},{user_id:999,loadout:{equipment:[]}}]});
@@ -105,25 +106,25 @@ test('XLSX endpoint provides valid package entries, rarity styles, source dates 
   assert.match(res.headers.get('Content-Type'),/spreadsheetml/);
   const files=unzipStored(new Uint8Array(await res.arrayBuffer()));
   assert.ok(files['[Content_Types].xml']);
-  assert.match(files['xl/workbook.xml'],/Faction roster.*Equipment details.*Item artwork.*Read me/);
+  assert.match(files['xl/workbook.xml'],/Faction roster.*Equipment details.*Read me/);
   assert.match(files['xl/worksheets/sheet1.xml'],/s="4" t="inlineStr".*SIG &amp; 552/);
   assert.match(files['xl/worksheets/sheet1.xml'],/s="5" t="inlineStr".*SIG &amp; 552/);
   assert.match(files['xl/worksheets/sheet1.xml'],/=not a formula/);
   assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/<f>/);
-  assert.match(files['xl/worksheets/sheet3.xml'],/images\/items\/398\/large\.png/);
+  assert.doesNotMatch(files['xl/workbook.xml'],/Item artwork/);
   assert.match(files['xl/styles.xml'],/FFFFF2B2.*FFFFD0A1.*FFFFB5B5/);
 });
 test('empty faction and warnings produce a workbook without placeholder stats',()=>{
   const files=unzipStored(factionWorkbook({faction_id:1,members:[],warnings:[{provider:'kal',message:'Unavailable'}]}));
-  assert.match(files['xl/worksheets/sheet1.xml'],/A1:O1/);
-  assert.match(files['xl/worksheets/sheet4.xml'],/Unavailable/);
+  assert.match(files['xl/worksheets/sheet1.xml'],/A1:R1/);
+  assert.match(files['xl/worksheets/sheet3.xml'],/Unavailable/);
 });
 
-test('image previews are opt-in and generated only on the artwork sheet',async()=>{
+test('legacy images parameter remains accepted without creating an artwork sheet',async()=>{
   const res=await researchFetch(request('/faction/123/export.xlsx?images=true'),env,mocked([]));
   assert.equal(res.status,200);
   const files=unzipStored(new Uint8Array(await res.arrayBuffer()));
-  assert.match(files['xl/worksheets/sheet3.xml'],/_xlfn\.IMAGE\(C2,B2,0\)/);
+  assert.doesNotMatch(files['xl/workbook.xml'],/Item artwork/);
   assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/<f>/);
   assert.equal((await researchFetch(request('/faction/123?images=true'),env,fail)).status,400);
 });
@@ -155,13 +156,48 @@ test('roster has only requested columns and real date cells; missing estimates s
   const roster=files['xl/worksheets/sheet1.xml'];
   const header=roster.match(/<row r="1"[^>]*>(.*?)<\/row>/)[1];
   const labels=[...header.matchAll(/<t xml:space="preserve">(.*?)<\/t>/g)].map(m=>m[1]);
-  assert.deepEqual(labels,['Player','Player ID','Estimated stats','Stats updated','Loadout observed','Loadout coverage','Primary','Secondary','Melee','Temporary','Helmet','Body','Pants','Boots','Gloves']);
+  assert.deepEqual(labels,['Player','Player ID','FFScouter estimate','Stats updated','Torn Stats total','Spy date','Last 6 wars (points)','Loadout observed','Loadout note','Primary','Secondary','Melee','Temporary','Helmet','Body','Pants','Boots','Gloves']);
   const serial=Math.floor(Date.UTC(2026,10,26)/86400000)+25569;
   assert.match(roster,/<c r="C2" s="2"><v>123456<\/v><\/c>/);
   assert.ok(roster.includes('<c r="D2" s="6"><v>'+serial+'</v></c>'));
-  assert.ok(roster.includes('<c r="E2" s="6"><v>'+(serial-1)+'</v></c>'));
+  assert.ok(roster.includes('<c r="H2" s="6"><v>'+(serial-1)+'</v></c>'));
   assert.match(roster,/<c r="C3" s="2" t="inlineStr"><is><t xml:space="preserve"><\/t><\/is><\/c>/);
   assert.match(files['xl/styles.xml'],/numFmtId="164" formatCode="mmmm d, yyyy"/);
   assert.ok(files['xl/worksheets/sheet2.xml'].includes('<c r="P2" s="6"><v>'+(serial-1)+'</v></c>'));
-  assert.match(roster,/<c r="G2" s="4" t="inlineStr"/);
+  assert.match(roster,/<c r="J2" s="4" t="inlineStr"/);
+});
+
+test('export enriches documented spy roster, six ordered war scores and next older pillow loadout',async()=>{
+  const calls=[];const now=Math.floor(Date.now()/1000);
+  const pillow={id:99,name:'Pillow',slot_name:'melee'};
+  const mock=async(url,init)=>{
+    const u=new URL(url);calls.push(u.pathname);
+    if(u.hostname==='api.torn.com'){
+      if(u.pathname.endsWith('/members'))return json({members:[{id:1,name:'Example'},{id:2,name:'Missing'}]});
+      if(u.pathname.endsWith('/rankedwars'))return json({rankedwars:[...Array.from({length:7},(_,i)=>({id:100+i,end:now-100-i*100})),{id:999,end:0}]});
+      const id=Number(u.pathname.split('/')[3]);
+      return json({rankedwarreport:{id,factions:[{id:123,members:[{id:1,score:id===101?0:id}]},{id:456,name:'Opponent',members:[]}]}});
+    }
+    if(u.hostname==='www.tornstats.com'){
+      assert.equal(u.pathname,'/api/v2/spy-fixture/spy/faction/123');
+      return json({status:true,faction:{ID:123},members:{1:{id:1,spy:{total:'123456',timestamp:now-300}},2:{id:2,spy:{status:false}}}});
+    }
+    if(u.hostname==='ffscouter.com')return json([{player_id:1,bs_estimate:111111}]);
+    if(u.pathname==='/faction/123/loadouts')return json({members:[{user_id:1,loadout:{observed_at:now,equipment:[pillow]}},{user_id:2,loadout:null}]});
+    if(u.pathname==='/user/1/loadout')return u.searchParams.get('cursor')==='older'?json({user_id:1,observed_at:now-86400,equipment:[equipment]}):json({user_id:1,observed_at:now,equipment:[pillow],pagination:{next_cursor:'older'}});
+    throw Error('Unexpected request');
+  };
+  const result=await researchFetch(request('/faction/123/export.xlsx'),{...env,TORNSTATS_API_KEY:'spy-fixture'},mock);
+  assert.equal(result.status,200);
+  const files=unzipStored(new Uint8Array(await result.arrayBuffer()));
+  const roster=files['xl/worksheets/sheet1.xml'];
+  assert.match(roster,/<c r="E2" s="2"><v>123456<\/v>/);
+  assert.match(roster,/100 \| 0 \| 102 \| 103 \| 104 \| 105/);
+  assert.match(roster,/Historical \(pillow fallback\)/);
+  assert.match(roster,/SIG &amp; 552/);
+  assert.doesNotMatch(roster,/>Pillow</);
+  assert.match(roster,/— \| — \| — \| — \| — \| —/);
+  assert.equal(calls.filter(p=>p.endsWith('/rankedwarreport')).length,6);
+  assert.ok(!calls.some(p=>p.includes('/106/rankedwarreport')));
+  assert.ok(!Object.values(files).join('').includes('spy-fixture'));
 });

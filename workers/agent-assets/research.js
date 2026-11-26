@@ -1,8 +1,8 @@
 import { factionWorkbook } from './faction-workbook.js';
 
 const hex = /^[a-f0-9]{64}$/;
-const secrets = { torn: 'TORN_API_KEY', kal: 'KAL_API_KEY', ffscouter: 'FFSCOUTER_API_KEY' };
-const hosts = { torn: 'https://api.torn.com', kal: 'https://api.kalends.dev', ffscouter: 'https://ffscouter.com' };
+const secrets = { torn: 'TORN_API_KEY', kal: 'KAL_API_KEY', ffscouter: 'FFSCOUTER_API_KEY', tornstats: 'TORNSTATS_API_KEY' };
+const hosts = { torn: 'https://api.torn.com', kal: 'https://api.kalends.dev', ffscouter: 'https://ffscouter.com', tornstats: 'https://www.tornstats.com' };
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 class ResearchError extends Error {
   constructor(status, code, message, details = {}) { super(message); this.status = status; this.code = code; this.details = details; }
@@ -46,10 +46,11 @@ function paramsFor(url, omit = []) {
 async function upstream(provider, path, params, env, fetcher) {
   const key = env[secrets[provider]];
   if (!key) throw new ResearchError(503, 'MISSING_SECRET', 'Configure Worker secret ' + secrets[provider] + '.', { provider, secret: secrets[provider] });
-  const url = new URL(path, hosts[provider]);
+  const url = new URL(provider==='tornstats' ? '/api/v2/'+encodeURIComponent(key)+path : path, hosts[provider]);
   url.search = params.toString();
   const headers = { Accept: 'application/json' };
-  if (provider === 'ffscouter' || (provider === 'torn' && !path.startsWith('/v2/'))) url.searchParams.set('key',key);
+  if (provider === 'tornstats') { /* Credential is in the documented path. */ }
+  else if (provider === 'ffscouter' || (provider === 'torn' && !path.startsWith('/v2/'))) url.searchParams.set('key',key);
   else headers.Authorization = 'ApiKey ' + key;
   let response, body;
   try { response = await fetcher(url.toString(), { method:'GET', headers, redirect:'manual', signal:AbortSignal.timeout(15000) }); }
@@ -61,7 +62,7 @@ async function upstream(provider, path, params, env, fetcher) {
   }
   try { body = await response.json(); }
   catch { throw providerError(provider, 'Provider returned a non-JSON response.', { endpoint:path, upstream_status:response.status }, response.status === 429 ? 429 : 502); }
-  if (!response.ok || body?.error) {
+  if (!response.ok || body?.error || (provider==='tornstats' && body?.status===false)) {
     const err = body?.error;
     const code = err?.code ?? body?.code;
     const message = redact(err?.error ?? err?.message ?? (typeof err === 'string' ? err : body?.message ?? 'Provider rejected the request.'),env).slice(0,500);
@@ -130,6 +131,87 @@ async function faction(id, env, fetcher) {
     kal_roster_observed_at:loadouts.data?.members_observed_at ?? null, player_ids:ids, members,
     warnings:[stats.error,loadouts.error,...[...fallbackErrors].map(([id,error])=>({...error,player_id:id})), ...(eligible && missing.some(id=>!kalMap.has(id)&&!fallbackErrors.has(id)) ? [{provider:'kal',code:'FALLBACK_LIMIT',message:'Some players were absent from KAL roster and not individually checked; use the single-player route.'}] : [])].filter(Boolean) };
 }
+
+const weapons=loadout=>(loadout?.equipment||[]).filter(x=>['primary','secondary','melee'].includes(String(x.slot_name).toLowerCase())||[1,2,3].includes(Number(x.slot)));
+const pillowOnly=loadout=>{const items=weapons(loadout);return items.length===1 && String(items[0].name).trim().toLowerCase()==='pillow';};
+const hasCombatWeapon=loadout=>weapons(loadout).some(x=>x.name && String(x.name).trim().toLowerCase()!=='pillow');
+const timestamp=v=>{const n=Number(v);if(Number.isFinite(n)&&n>0)return n>=1e12?n/1000:n;if(typeof v!=='string'||!v)return 0;const parsed=Date.parse(v);return Number.isFinite(parsed)?parsed/1000:0;};
+const numeric=v=>v!==null&&v!==undefined&&v!==''&&typeof v!=='boolean'&&Number.isFinite(Number(v))?Number(v):null;
+const objectRows=v=>Array.isArray(v)?v:v&&typeof v==='object'?Object.entries(v).filter(([,x])=>x&&typeof x==='object').map(([id,x])=>({...x,id:x.id??id})):null;
+async function getWarHistory(id,env,fetcher) {
+  const warnings=[];
+  const list=await capture(()=>upstream('torn','/v2/faction/'+id+'/rankedwars',new URLSearchParams({limit:'20'}),env,fetcher));
+  if(list.error)return {wars:[],warnings:[list.error]};
+  const rows=objectRows(list.data?.rankedwars);
+  if(!rows)return {wars:[],warnings:[{provider:'torn',code:'INVALID_WAR_HISTORY',message:'Expected rankedwars array or object.'}]};
+  const wars=rows.map(x=>({id:Number(x.war_id??x.id),end:timestamp(x.end??x.war?.end),opponent:objectRows(x.factions)?.find(f=>Number(f.id)!==Number(id))?.name??null}))
+    .filter(x=>positive(x.id)&&x.end>0&&x.end<=Date.now()/1000).sort((a,b)=>b.end-a.end||b.id-a.id);
+  const selected=[...new Map(wars.map(x=>[x.id,x])).values()].slice(0,6);
+  for(let i=0;i<selected.length;i+=3){
+    await Promise.all(selected.slice(i,i+3).map(async war=>{
+      const result=await capture(()=>upstream('torn','/v2/faction/'+war.id+'/rankedwarreport',new URLSearchParams(),env,fetcher));
+      if(result.error){warnings.push({...result.error,war_id:war.id});return;}
+      const report=result.data?.rankedwarreport;
+      const sides=objectRows(report?.factions);
+      const side=sides?.find(x=>Number(x.id??x.faction_id)===Number(id));
+      const members=objectRows(side?.members);
+      if(!members){warnings.push({provider:'torn',code:'INVALID_WAR_REPORT',message:'Expected target faction and member scores in ranked war report.',war_id:war.id});return;}
+      war.scores=Object.fromEntries(members.filter(x=>positive(x.id??x.player_id??x.user_id)).map(x=>[Number(x.id??x.player_id??x.user_id),numeric(x.score)]));
+      war.opponent=sides.find(x=>Number(x.id??x.faction_id)!==Number(id))?.name??war.opponent;
+    }));
+    if(warnings.some(e=>e.upstream_status===429||e.upstream_code==='5'))break;
+  }
+  return {wars:selected,warnings};
+}
+async function getSpies(id,env,fetcher){
+  const data=await upstream('tornstats','/spy/faction/'+id,new URLSearchParams(),env,fetcher);
+  const faction=data?.faction;
+  const rows=objectRows(data?.members??faction?.members);
+  if(!rows || (faction?.ID!=null&&Number(faction.ID)!==Number(id)))throw providerError('tornstats','Expected matching faction and members in Torn Stats spy response.',{endpoint:'/spy/faction/'+id});
+  return Object.fromEntries(rows.filter(m=>positive(m.id)&&m.spy&&m.spy.status!==false).map(m=>{
+    const s=m.spy, total=numeric(s.total);
+    return [Number(m.id),{total:total!==null&&total>=0?total:null,timestamp:timestamp(s.timestamp??m.timestamp)||null}];
+  }));
+}
+// Keep the existing JSON API lean; enrich the Excel export only.
+// 3 base requests + up to 20 missing KAL + 8 spy/war requests + 16 pillow requests
+// = 47 upstream requests, leaving room for R2 on the free Worker limit.
+async function enrichExport(report,env,fetcher){
+  const [history,spies]=await Promise.all([
+    getWarHistory(report.faction_id,env,fetcher),
+    capture(()=>getSpies(report.faction_id,env,fetcher))
+  ]);
+  report.wars=history.wars;
+  report.warnings.push(...history.warnings,...[spies.error].filter(Boolean));
+  for(const m of report.members){
+    m.spy=spies.data?.[m.player_id]??null;
+    m.war_scores=history.wars.map(w=>w.scores?.[m.player_id]??null);
+  }
+  const candidates=report.members.filter(m=>pillowOnly(m.loadout));
+  if(candidates.length>8)report.warnings.push({provider:'kal',code:'PILLOW_HISTORY_LIMIT',message:'Only the first eight pillow-only loadouts were checked in this export.'});
+  for(const m of candidates.slice(0,8)){
+    const path='/user/'+m.player_id+'/loadout';
+    let latest=m.loadout;
+    if(!latest.pagination?.next_cursor){
+      const res=await capture(()=>upstream('kal',path,new URLSearchParams(),env,fetcher));
+      if(res.error){report.warnings.push({...res.error,player_id:m.player_id});if(res.error.upstream_status===429||res.error.upstream_code==='20')break;continue;}
+      if(Number(res.data?.user_id)!==m.player_id||!Array.isArray(res.data?.equipment)){report.warnings.push({provider:'kal',code:'INVALID_LOADOUT',message:'Expected matching player and equipment.',player_id:m.player_id});continue;}
+      latest=res.data;
+      if(!pillowOnly(latest)){if(timestamp(latest.observed_at)>=timestamp(m.loadout.observed_at))m.loadout=latest;continue;}
+      if(timestamp(latest.observed_at)>=timestamp(m.loadout.observed_at))m.loadout=latest;
+    }
+    const cursor=latest.pagination?.next_cursor;
+    if(typeof cursor!=='string'||!cursor)continue;
+    const older=await capture(()=>upstream('kal',path,new URLSearchParams({cursor}),env,fetcher));
+    if(older.error){report.warnings.push({...older.error,player_id:m.player_id});if(older.error.upstream_status===429||older.error.upstream_code==='20')break;continue;}
+    if(Number(older.data?.user_id)===m.player_id&&hasCombatWeapon(older.data)&&timestamp(older.data.observed_at)>0&&timestamp(older.data.observed_at)<timestamp(latest.observed_at)){
+      m.latest_loadout=latest;m.loadout=older.data;m.historical_loadout=true;
+      report.warnings.push({provider:'kal',code:'HISTORICAL_LOADOUT',message:'Latest observed weapon was a pillow; displayed the next older observed combat loadout.',player_id:m.player_id});
+    }
+  }
+  return report;
+}
+
 export async function researchFetch(request, env, fetcher = fetch) {
   const url = new URL(request.url);
   if (!hex.test(env.RESEARCH_TOKEN_SHA256 || '')) return json({ok:false,error:{code:'RESEARCH_AUTH_NOT_CONFIGURED',message:'Configure RESEARCH_TOKEN_SHA256 to enable research routes.'}},503);
@@ -149,11 +231,10 @@ export async function researchRoute(url, env, fetcher = fetch) {
     if (path === '/ffscouter/stats') return json(await ff(idsFrom((url.searchParams.get('ids')||'').split(',')),env,fetcher));
     const match = /^\/faction\/([1-9]\d*)(\/export\.xlsx)?$/.exec(path);
     if (match && positive(match[1])) {
-      const images = match[2] && url.searchParams.get('images') === 'true';
       if (url.search && (!match[2] || url.searchParams.size !== 1 || !['true','false'].includes(url.searchParams.get('images')))) throw new ResearchError(400,'INVALID_PARAMETER','Only the Excel export supports the optional images=true or images=false query parameter.');
       const data=await faction(match[1],env,fetcher);
       if (!match[2]) return json(data);
-      return new Response(factionWorkbook(data,{images}),{headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="faction-'+match[1]+'-intelligence.xlsx"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+      return new Response(factionWorkbook(await enrichExport(data,env,fetcher)),{headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="faction-'+match[1]+'-intelligence.xlsx"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
     }
     throw new ResearchError(404,'UNKNOWN_ROUTE','Unknown research endpoint.');
   } catch(e) {
