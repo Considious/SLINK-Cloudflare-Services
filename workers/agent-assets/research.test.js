@@ -118,3 +118,12 @@ test('empty faction and warnings produce a workbook without placeholder stats',(
   assert.match(files['xl/worksheets/sheet1.xml'],/A1:U1/);
   assert.match(files['xl/worksheets/sheet4.xml'],/Unavailable/);
 });
+
+test('image previews are opt-in and generated only on the artwork sheet',async()=>{
+  const res=await researchFetch(request('/faction/123/export.xlsx?images=true'),env,mocked([]));
+  assert.equal(res.status,200);
+  const files=unzipStored(new Uint8Array(await res.arrayBuffer()));
+  assert.match(files['xl/worksheets/sheet3.xml'],/_xlfn\.IMAGE\(C2,B2,0\)/);
+  assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/<f>/);
+  assert.equal((await researchFetch(request('/faction/123?images=true'),env,fail)).status,400);
+});
