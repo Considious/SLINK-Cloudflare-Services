@@ -107,6 +107,8 @@ curl --fail-with-body -H "Authorization: Bearer ${SLINK_RESEARCH_TOKEN}" \
   --output faction-46978.xlsx
 ```
 
+Append ?images=true to the Excel export route for an additional Preview column in Item artwork. The previews use the Excel IMAGE function (Excel for Microsoft 365 or Excel 2024, external images permitted). They are not embedded; the default export includes links only for compatibility. No API credentials are used in the image URLs.
+
 Run npm test before merging. The Worker does not create any new R2 bucket,
 database, scheduled task or workflow. Calls are on demand; use provider quotas
 and avoid concurrent export loops. The token is for a single trusted operator,
