@@ -110,10 +110,43 @@ curl --fail-with-body -H "Authorization: Bearer ${SLINK_RESEARCH_TOKEN}" \
 Append ?images=true to the Excel export route for an additional Preview column in Item artwork. The previews use the Excel IMAGE function (Excel for Microsoft 365 or Excel 2024, external images permitted). They are not embedded; the default export includes links only for compatibility. No API credentials are used in the image URLs.
 
 Run npm test before merging. The Worker does not create any new R2 bucket,
-database, scheduled task or workflow. Calls are on demand; use provider quotas
+database or scheduled task. The research Workflow below is on demand; use provider quotas
 and avoid concurrent export loops. The token is for a single trusted operator,
 not an entitlement mechanism for a public service. A global distributed rate
 limiter is not included; keep request volume within your provider limits.
 
 Provider docs: https://www.torn.com/swagger.php, https://kalends.dev/api-docs,
 https://ffscouter.com/.
+
+## Cloudflare-authenticated research Workflow
+
+The same Worker also exports SlinkAgentResearch, registered as
+slink-agent-research. No new Worker, bucket, API key, or schedule.
+Cloudflare's authenticated instance creation API is the access control;
+RESEARCH_TOKEN_SHA256 is still required for direct HTTP requests only.
+Do not grant public access to the Workflow binding.
+
+Start via POST /accounts/{account_id}/workflows/slink-agent-research/instances
+(Workers Scripts Write). The params property is a JSON-encoded string.
+Retrieve via GET /accounts/{account_id}/workflows/slink-agent-research/instances/{instance_id}
+(Workers Scripts Read); check status and the research-result step or output.
+The full step output endpoint can be used if the instance summary truncates it.
+Use short instance retention where supported. No API credentials belong in parameters.
+
+Accepted JSON parameter examples:
+
+- {"operation":"health"}
+- {"operation":"torn","path":"/v2/faction/16247/members","query":{"striptags":true}}
+- {"operation":"kal","path":"/faction/16247/loadouts"}
+- {"operation":"ffscouter","ids":[123,456]}
+- {"operation":"faction","faction_id":16247}
+- {"operation":"faction_export","faction_id":16247,"images":true}
+
+Results contain ok, format, and data; errors contain ok:false, status where
+available, and descriptive error details. Ordinary JSON is returned directly.
+XLSX and large JSON are gzip-compressed then base64 encoded; decode base64,
+then gunzip, to retrieve the original bytes. No public link or R2 write.
+If compressed output exceeds the conservative 700 KiB result budget, use
+smaller requests or direct HTTP export. Workflows persist results privately
+within the Cloudflare account until retention expiry; access accordingly.
+Provider errors are not automatically retried to avoid consuming API quotas.

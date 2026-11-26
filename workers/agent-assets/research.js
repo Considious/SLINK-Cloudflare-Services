@@ -130,6 +130,12 @@ export async function researchFetch(request, env, fetcher = fetch) {
   if (!hex.test(env.RESEARCH_TOKEN_SHA256 || '')) return json({ok:false,error:{code:'RESEARCH_AUTH_NOT_CONFIGURED',message:'Configure RESEARCH_TOKEN_SHA256 to enable research routes.'}},503);
   if (!await authorized(request,env.RESEARCH_TOKEN_SHA256)) return json({ok:false,error:{code:'UNAUTHORIZED',message:'Supply the separate research bearer token.'}},401);
   if (request.method !== 'GET') return json({ok:false,error:{code:'METHOD_NOT_ALLOWED',message:'Research endpoints are read-only; use GET.'}},405);
+  return researchRoute(url, env, fetcher);
+}
+
+// Internal entry point: callers must authenticate before invoking this function.
+// Only the HTTP handler and Cloudflare Workflow entry point call it.
+export async function researchRoute(url, env, fetcher = fetch) {
   const path = url.pathname.slice('/v1/research'.length);
   try {
     if (path === '/health') return json({ok:true,configured:Object.fromEntries(Object.entries(secrets).map(([p,k])=>[p,Boolean(env[k])]))});
