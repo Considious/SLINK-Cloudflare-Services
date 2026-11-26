@@ -99,16 +99,31 @@ async function faction(id, env, fetcher) {
   const ffMap = new Map((stats.data || []).map(x=>[Number(x.player_id),x]));
   const kalMap = new Map((loadouts.data?.members || []).map(x=>[Number(x.user_id),x]));
   // KAL stores its own roster. Use Torn as authority; do not silently add departed players.
+  // Recover missing members from a lagging KAL roster with a bounded number of
+  // requests. This keeps the export within the free Worker subrequest budget.
+  const fallbackErrors = new Map();
+  const missing = ids.filter(id=>!kalMap.has(id));
+  const eligible = !loadouts.error || loadouts.error.upstream_status === 404;
+  const candidates = eligible ? missing.slice(0,20) : [];
+  for (let i=0;i<candidates.length;i+=4) {
+    await Promise.all(candidates.slice(i,i+4).map(async id=>{
+      const result=await capture(()=>upstream('kal','/user/'+id+'/loadout',new URLSearchParams(),env,fetcher));
+      if (result.data && Number(result.data.user_id) === id && Array.isArray(result.data.equipment)) kalMap.set(id,{loadout:result.data});
+      else if (result.error?.upstream_status === 404) kalMap.set(id,{loadout:null});
+      else fallbackErrors.set(id,result.error || {provider:'kal',code:'INVALID_LOADOUT',message:'Expected matching player ID and equipment array.'});
+    }));
+    if ([...fallbackErrors.values()].some(e=>e.upstream_status===429 || e.upstream_code==='20')) break;
+  }
   const members = roster.members.map(m=>{
     const stat=ffMap.get(Number(m.id)), entry=kalMap.get(Number(m.id));
     return { player_id:Number(m.id), name:m.name, level:m.level ?? null,
       position:m.position ?? null, status:m.status?.description ?? m.status?.state ?? null,
       stats:stat ?? null, stats_status:stats.error ? 'provider_error' : stat?.bs_estimate != null || stat?.bs_estimate_human ? 'available' : 'no_estimate',
-      loadout:entry?.loadout ?? null, loadout_status:loadouts.error ? 'provider_error' : !entry ? 'not_in_kal_roster' : entry.loadout ? 'available' : 'no_visible_loadout' };
+      loadout:entry?.loadout ?? null, loadout_status:entry ? (entry.loadout ? 'available' : 'no_visible_loadout') : fallbackErrors.has(Number(m.id)) || (loadouts.error && !eligible) ? 'provider_error' : 'not_in_kal_roster' };
   });
   return { faction_id:Number(id), faction_name:loadouts.data?.name ?? null, fetched_at:new Date().toISOString(),
     kal_roster_observed_at:loadouts.data?.members_observed_at ?? null, player_ids:ids, members,
-    warnings:[stats.error,loadouts.error].filter(Boolean) };
+    warnings:[stats.error,loadouts.error,...[...fallbackErrors].map(([id,error])=>({...error,player_id:id})), ...(eligible && missing.some(id=>!kalMap.has(id)&&!fallbackErrors.has(id)) ? [{provider:'kal',code:'FALLBACK_LIMIT',message:'Some players were absent from KAL roster and not individually checked; use the single-player route.'}] : [])].filter(Boolean) };
 }
 export async function researchFetch(request, env, fetcher = fetch) {
   const url = new URL(request.url);
