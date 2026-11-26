@@ -16,7 +16,7 @@ function decodePart(value) {
 
 async function fetchKeys() {
   const reply = await fetch(issuer + '/.well-known/jwks', {
-    headers: { Accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(5000)
+    headers: { Accept: 'application/json', 'User-Agent': 'SLINK-Agent-Assets/1.0' }, redirect: 'error', signal: AbortSignal.timeout(5000)
   });
   if (!reply.ok) throw new Error('GitHub signing keys unavailable');
   const body = await reply.json();
