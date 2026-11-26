@@ -95,8 +95,7 @@ All research routes are read-only, fixed-origin, and no-store.
 
 The faction ID above is an example, not a default. The export uses Torn as
 the roster source and joins by numeric player ID. KAL's faction snapshot
-can lag Torn's roster; rows absent from KAL are explicitly marked, and can
-be checked using the single-player KAL route. Partial provider failures
+can lag Torn's roster; the Worker attempts up to 20 individual lookups for missing members (four at a time), stopping further batches on rate-limit errors. Any remaining unverified rows are explicitly marked and can be checked using the single-player KAL route. Partial provider failures
 do not erase valid roster rows; check coverage columns and Read me warnings.
 FFScouter estimates are not exact stats and fair fight depends on the key owner.
 
