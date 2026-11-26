@@ -12,11 +12,11 @@ result when the stored metadata matches.
 2. Connect a Worker named `slink-agent-assets` to this repository with the project root
    `workers/agent-assets`, build command `npm test`, and deploy command
    `npx wrangler deploy`. The checked-in configuration supplies the R2 binding.
-3. Generate a random 32-byte token as 64 lowercase hex characters in your
+3. For optional password-based uploads, generate a random 32-byte token as 64 lowercase hex characters in your
    credential store. Save the SHA-256 of that exact token string as the Worker
    secret `ASSET_UPLOAD_TOKEN_SHA256`. Keep the original token in the credential
    store used by the authorized upload client.
-4. Supply the client environment variables `SLINK_ASSET_UPLOAD_URL` (the
+4. For password-based uploads, supply the client environment variables `SLINK_ASSET_UPLOAD_URL` (the
    Worker HTTPS origin) and `SLINK_ASSET_UPLOAD_TOKEN` from that credential store.
    Rotate the token by replacing its hash in the Worker secret and updating
    the client credential. Never put the original token in Git or chat.
@@ -46,3 +46,15 @@ existing object's metadata does not match. The uploader never replaces that obje
 This credential allows uploads only. Production asset delivery and entitlement
 checks stay on the serving Worker. Torn API research uses a separate approval
 and credential flow.
+
+## Browser Extension repository sync
+
+The `sync-r2-artwork.yml` workflow in `Considious/SLINK-Browser-Extension`
+can upload with a short-lived GitHub Actions identity. The Worker verifies
+GitHub's signature and checks the audience, repository ID, workflow path,
+branch and event. This workflow needs no upload password or Cloudflare token.
+
+Place image files under `r2-assets/` in the Browser Extension repository and
+push to `main`. The workflow adds the SHA-256 to each filename if needed and
+uses the path beneath `r2-assets/` as the R2 object key. Existing objects are
+retained if a file is removed from Git.

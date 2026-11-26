@@ -101,3 +101,10 @@ test('bounds streamed bytes independently of Content-Length', async () => {
   assert.equal((await worker.fetch(oversized, env)).status, 413);
   assert.equal(writes(), 0);
 });
+
+test('requires a credential when the legacy upload secret is absent', async () => {
+  const { env, writes } = fixture();
+  delete env.ASSET_UPLOAD_TOKEN_SHA256;
+  assert.equal((await worker.fetch(request(), env)).status, 401);
+  assert.equal(writes(), 0);
+});

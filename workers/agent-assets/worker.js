@@ -1,3 +1,5 @@
+import { isArtworkWorkflow } from './github-identity.js';
+
 const maxBytes = 4 * 1024 * 1024;
 const slug = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const objectKey = new RegExp(
@@ -27,9 +29,12 @@ async function sha256(source) {
 }
 
 async function hasUploadToken(request, expectedHash) {
-  const match = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get('Authorization') || '');
+  const match = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
   if (!match) return false;
-  const hash = await sha256(new TextEncoder().encode(match[1]));
+  const value = match[1];
+  if (!hexPattern.test(value)) return isArtworkWorkflow(value);
+  if (!hexPattern.test(expectedHash || '')) return false;
+  const hash = await sha256(new TextEncoder().encode(value));
   let mismatch = 0;
   for (let i = 0; i < hash.length; i++) mismatch |= hash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
   return mismatch === 0;
@@ -110,8 +115,8 @@ export default {
     const isAsset = url.pathname.startsWith('/v1/assets/');
     const isHealth = url.pathname === '/v1/health';
     if (url.search || (!isAsset && !isHealth)) return json({ ok: false, error: 'Unknown upload API route.' }, 404);
-    if (!hexPattern.test(env.ASSET_UPLOAD_TOKEN_SHA256 || '') || !env.GRAPHICS_ASSETS) {
-      return json({ ok: false, error: 'Configure the upload service secret and graphics bucket binding.' }, 503);
+    if (!env.GRAPHICS_ASSETS) {
+      return json({ ok: false, error: 'Configure the graphics bucket binding.' }, 503);
     }
     if (!await hasUploadToken(request, env.ASSET_UPLOAD_TOKEN_SHA256)) {
       return json({ ok: false, error: 'Supply a valid artwork upload token.' }, 401, { 'WWW-Authenticate': 'Bearer' });
