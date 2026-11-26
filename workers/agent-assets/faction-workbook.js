@@ -9,8 +9,12 @@ const cellStyle = item => ({yellow:3,orange:4,red:5}[String(item?.rarity).toLowe
 const c = (v,s=0) => ({v,s});
 const date = v => {
   if (v == null || v === '') return '';
-  const d = new Date(typeof v === 'number' ? (v < 1e12 ? v*1000:v) : v);
-  return Number.isFinite(d.getTime()) ? d.toISOString().replace('T',' ').replace('.000Z',' UTC') : '';
+  const raw = typeof v === 'string' && /^\d{10,13}$/.test(v) ? Number(v) : v;
+  const d = new Date(typeof raw === 'number' ? (raw < 1e12 ? raw*1000:raw) : raw);
+  // Use whole Excel date serials, interpreted as UTC calendar dates.
+  const ms=d.getTime();
+  return Number.isFinite(ms) && ms>=0 ? c(Math.floor(ms/86400000)+25569,6) : '';
+
 };
 const number = v => typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+(\.\d+)?$/.test(v) && Number.isFinite(Number(v)) ? Number(v) : '';
 const bonusText = item => (item?.bonuses || []).map(b=>[b.title || b.id,b.value == null ? '' : String(b.value),b.description || ''].filter(Boolean).join(' — ')).join('\n');
@@ -32,7 +36,7 @@ function worksheet(headers,widths,rows) {
 }
 const fill = color=>'<fill><patternFill patternType="solid"><fgColor rgb="FF'+color+'"/><bgColor indexed="64"/></patternFill></fill>';
 const xf = (fontId,fillId,numFmtId=0)=>'<xf numFmtId="'+numFmtId+'" fontId="'+fontId+'" fillId="'+fillId+'" borderId="0" xfId="0" applyAlignment="1" applyFill="1" applyFont="1" applyNumberFormat="1"><alignment vertical="center" wrapText="1"/></xf>';
-const styles=declaration+'<styleSheet xmlns="'+ns+'"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'+['243B53','FFF2B2','FFD0A1','FFB5B5'].map(fill).join('')+'</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6">'+[xf(0,0),xf(1,2),xf(0,0,3),xf(0,3),xf(0,4),xf(0,5)].join('')+'</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+const styles=declaration+'<styleSheet xmlns="'+ns+'"><numFmts count="1"><numFmt numFmtId="164" formatCode="mmmm d, yyyy"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'+['243B53','FFF2B2','FFD0A1','FFB5B5'].map(fill).join('')+'</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="7">'+[xf(0,0),xf(1,2),xf(0,0,3),xf(0,3),xf(0,4),xf(0,5),xf(0,0,164)].join('')+'</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 function crc32(bytes) { let crc=0xffffffff; for(const b of bytes){crc^=b;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^0xffffffff)>>>0; }
 function zip(files) {
   const blocks=[], central=[];let offset=0,centralSize=0;
@@ -51,17 +55,17 @@ export function factionWorkbook(report, {images=false}={}) {
   const overview=[],equipment=[],catalog=new Map();
   for(const m of report.members) {
     const items=m.loadout?.equipment || [], bySlot=new Map(items.map(x=>[x.slot_name,x]));
-    overview.push([m.name,m.player_id,m.level,m.position,m.status,c(number(m.stats?.bs_estimate),2),m.stats?.bs_estimate_human,m.stats?.fair_fight,date(m.stats?.last_updated),m.stats_status,date(m.loadout?.observed_at),m.loadout_status,...slotNames.map(s=>c(itemText(bySlot.get(s)),cellStyle(bySlot.get(s))))]);
+    overview.push([m.name,m.player_id,c(number(m.stats?.bs_estimate),2),date(m.stats?.last_updated),date(m.loadout?.observed_at),m.loadout_status,...slotNames.map(s=>c(itemText(bySlot.get(s)),cellStyle(bySlot.get(s))))]);
     for(const item of items) {
       equipment.push([m.name,m.player_id,item.slot_name || item.slot,c(item.name,cellStyle(item)),item.rarity,item.id,item.stats?.damage,item.stats?.accuracy,item.stats?.armor,item.stats?.quality,bonusText(item),item.ammo?.type,(item.mods||[]).map(x=>x.name||x.id).join('\n'),item.effect,(item.blocked_effects||[]).map(x=>typeof x==='object'?JSON.stringify(x):x).join('\n'),date(m.loadout?.observed_at)]);
       if(Number.isSafeInteger(Number(item.id)) && Number(item.id)>0)catalog.set(Number(item.id),item.name||'Unknown item');
     }
   }
-  const info=[['Faction ID',report.faction_id],['Faction name (KAL)',report.faction_name],['Retrieved (UTC)',report.fetched_at],['Roster source','Official Torn API; only current members included.'],['Stat source','FFScouter estimated total battle stats, not verified actual stats or individual attributes. Fair fight is relative to the registered key owner.'],['Loadout source','KAL last visible observation, not live gear. Missing entries do not mean unarmed.'],['KAL stored roster observation',date(report.kal_roster_observed_at)],['Yellow',c('Yellow ranked rarity',3)],['Orange',c('Orange ranked rarity',4)],['Red',c('Red ranked rarity',5)],['No fill','Unranked or unspecified rarity.'],['Provider documentation','https://www.torn.com/swagger.php | https://kalends.dev/api-docs | https://ffscouter.com/'],['Item artwork','Artwork tab lists public Torn base-item image links. Optional previews use Excel IMAGE and require a compatible Excel version and permission for external images; they are not embedded.']];
+  const info=[['Faction ID',report.faction_id],['Faction name (KAL)',report.faction_name],['Retrieved (UTC)',report.fetched_at],['Roster source','Official Torn API; only current members included.'],['Stat source','FFScouter estimated total battle stats, not verified actual stats or individual attributes. Missing estimates are blank. Date columns use UTC calendar dates.'],['Loadout source','KAL last visible observation, not live gear. Missing entries do not mean unarmed.'],['KAL stored roster observation',date(report.kal_roster_observed_at)],['Yellow',c('Yellow ranked rarity',3)],['Orange',c('Orange ranked rarity',4)],['Red',c('Red ranked rarity',5)],['No fill','Unranked or unspecified rarity.'],['Provider documentation','https://www.torn.com/swagger.php | https://kalends.dev/api-docs | https://ffscouter.com/'],['Item artwork','Artwork tab lists public Torn base-item image links. Optional previews use Excel IMAGE and require a compatible Excel version and permission for external images; they are not embedded.']];
   for(const w of report.warnings||[])info.push([w.provider||'Warning',[w.code,w.message,w.endpoint,w.upstream_status,w.upstream_code,w.player_id == null ? null : 'Player '+w.player_id].filter(x=>x!=null).join(' | ')]);
   const sheets=[
-    ['Faction roster', ['Player','Player ID','Level','Position','Status','Estimated stats','Estimate label','Fair fight','Stats updated UTC','Stats coverage','Loadout observed UTC','Loadout coverage',...slotNames.map(s=>s[0].toUpperCase()+s.slice(1))],[25,15,9,19,25,19,18,13,25,22,25,24,...slotNames.map(()=>28)],overview],
-    ['Equipment details',['Player','Player ID','Slot','Item','Rarity','Item ID','Damage','Accuracy','Armor','Quality','Bonuses','Ammo','Mods','Effect','Blocked effects','Observed UTC'],[25,15,15,28,13,12,11,11,11,11,48,17,28,25,30,25],equipment],
+    ['Faction roster', ['Player','Player ID','Estimated stats','Stats updated','Loadout observed','Loadout coverage',...slotNames.map(s=>s[0].toUpperCase()+s.slice(1))],[25,15,19,23,23,24,...slotNames.map(()=>28)],overview],
+    ['Equipment details',['Player','Player ID','Slot','Item','Rarity','Item ID','Damage','Accuracy','Armor','Quality','Bonuses','Ammo','Mods','Effect','Blocked effects','Observed date'],[25,15,15,28,13,12,11,11,11,11,48,17,28,25,30,25],equipment],
     ['Item artwork',['Item ID','Item name','Public Torn image URL',...(images?['Preview']:[])],[15,32,80,...(images?[26]:[])],[...catalog.entries()].sort((a,b)=>a[0]-b[0]).map(([id,name])=>[id,name,'https://www.torn.com/images/items/'+id+'/large.png',...(images?[{preview:true}]:[])])],
     ['Read me',['Field','Explanation'],[32,105],info]
   ];

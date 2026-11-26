@@ -93,6 +93,8 @@ All research routes are read-only, fixed-origin, and no-store.
 | /v1/research/faction/46978 | Combined JSON, with current Torn member IDs and per-provider coverage |
 | /v1/research/faction/46978/export.xlsx | Excel workbook, with rarity fills, stat and loadout timestamps, equipment detail and artwork URLs |
 
+The roster sheet keeps player ID, numeric estimated stats, stats updated and loadout observed dates, loadout coverage, and equipped items. Missing stat estimates are blank. Dates use UTC calendar days and real Excel date cells displayed as month day, year (no time). The detailed equipment and artwork tabs are retained.
+
 The faction ID above is an example, not a default. The export uses Torn as
 the roster source and joins by numeric player ID. KAL's faction snapshot
 can lag Torn's roster; the Worker attempts up to 20 individual lookups for missing members (four at a time), stopping further batches on rate-limit errors. Any remaining unverified rows are explicitly marked and can be checked using the single-player KAL route. Partial provider failures

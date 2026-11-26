@@ -115,7 +115,7 @@ test('XLSX endpoint provides valid package entries, rarity styles, source dates 
 });
 test('empty faction and warnings produce a workbook without placeholder stats',()=>{
   const files=unzipStored(factionWorkbook({faction_id:1,members:[],warnings:[{provider:'kal',message:'Unavailable'}]}));
-  assert.match(files['xl/worksheets/sheet1.xml'],/A1:U1/);
+  assert.match(files['xl/worksheets/sheet1.xml'],/A1:O1/);
   assert.match(files['xl/worksheets/sheet4.xml'],/Unavailable/);
 });
 
@@ -144,4 +144,24 @@ test('faction roster uses full official Torn URL and rejects redirects without f
   assert.equal(body.error.upstream_origin,'https://api.torn.com');
   assert.match(body.error.message,/redirect/);
   assert.ok(!JSON.stringify(body).includes(env.TORN_API_KEY));
+});
+
+test('roster has only requested columns and real date cells; missing estimates stay blank',()=>{
+  const report={faction_id:123,members:[
+    {name:'Example',player_id:1,level:100,position:'Leader',status:'Okay',stats:{bs_estimate:123456,bs_estimate_human:'123k',fair_fight:3,last_updated:Date.UTC(2026,10,26,23,59)/1000},stats_status:'available',loadout:{observed_at:'2026-11-25T01:10:00Z',equipment:[equipment]},loadout_status:'available'},
+    {name:'Missing',player_id:2,stats:null,loadout:null,stats_status:'no_estimate',loadout_status:'no_visible_loadout'}
+  ]};
+  const files=unzipStored(factionWorkbook(report));
+  const roster=files['xl/worksheets/sheet1.xml'];
+  const header=roster.match(/<row r="1"[^>]*>(.*?)<\/row>/)[1];
+  const labels=[...header.matchAll(/<t xml:space="preserve">(.*?)<\/t>/g)].map(m=>m[1]);
+  assert.deepEqual(labels,['Player','Player ID','Estimated stats','Stats updated','Loadout observed','Loadout coverage','Primary','Secondary','Melee','Temporary','Helmet','Body','Pants','Boots','Gloves']);
+  const serial=Math.floor(Date.UTC(2026,10,26)/86400000)+25569;
+  assert.match(roster,/<c r="C2" s="2"><v>123456<\/v><\/c>/);
+  assert.ok(roster.includes('<c r="D2" s="6"><v>'+serial+'</v></c>'));
+  assert.ok(roster.includes('<c r="E2" s="6"><v>'+(serial-1)+'</v></c>'));
+  assert.match(roster,/<c r="C3" s="2" t="inlineStr"><is><t xml:space="preserve"><\/t><\/is><\/c>/);
+  assert.match(files['xl/styles.xml'],/numFmtId="164" formatCode="mmmm d, yyyy"/);
+  assert.ok(files['xl/worksheets/sheet2.xml'].includes('<c r="P2" s="6"><v>'+(serial-1)+'</v></c>'));
+  assert.match(roster,/<c r="G2" s="4" t="inlineStr"/);
 });
