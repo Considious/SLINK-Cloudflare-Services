@@ -138,10 +138,11 @@ export async function researchFetch(request, env, fetcher = fetch) {
     if (path === '/ffscouter/stats') return json(await ff(idsFrom((url.searchParams.get('ids')||'').split(',')),env,fetcher));
     const match = /^\/faction\/([1-9]\d*)(\/export\.xlsx)?$/.exec(path);
     if (match && positive(match[1])) {
-      if (url.search) throw new ResearchError(400,'INVALID_PARAMETER','Faction export accepts only the faction ID in the path.');
+      const images = match[2] && url.searchParams.get('images') === 'true';
+      if (url.search && (!match[2] || url.searchParams.size !== 1 || !['true','false'].includes(url.searchParams.get('images')))) throw new ResearchError(400,'INVALID_PARAMETER','Only the Excel export supports the optional images=true or images=false query parameter.');
       const data=await faction(match[1],env,fetcher);
       if (!match[2]) return json(data);
-      return new Response(factionWorkbook(data),{headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="faction-'+match[1]+'-intelligence.xlsx"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+      return new Response(factionWorkbook(data,{images}),{headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="faction-'+match[1]+'-intelligence.xlsx"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
     }
     throw new ResearchError(404,'UNKNOWN_ROUTE','Unknown research endpoint.');
   } catch(e) {
