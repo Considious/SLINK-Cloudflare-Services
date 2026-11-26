@@ -37,7 +37,7 @@ test('Torn proxy forwards documented read paths, query parameters and provider-s
       const u=new URL(url);
       assert.equal(u.origin,'https://api.torn.com');
       assert.equal(u.pathname,expected);
-      assert.equal(init.redirect,'error');
+      assert.equal(init.redirect,'manual');
       assert.equal(init.headers.Authorization,header?'ApiKey '+env.TORN_API_KEY:undefined);
       assert.equal(u.searchParams.get('key'),header?null:env.TORN_API_KEY);
       return json({name:'Example'});
@@ -126,4 +126,22 @@ test('image previews are opt-in and generated only on the artwork sheet',async()
   assert.match(files['xl/worksheets/sheet3.xml'],/_xlfn\.IMAGE\(C2,B2,0\)/);
   assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/<f>/);
   assert.equal((await researchFetch(request('/faction/123?images=true'),env,fail)).status,400);
+});
+
+test('faction roster uses full official Torn URL and rejects redirects without forwarding credentials',async()=>{
+  let calls=0;
+  const response=await researchFetch(request('/faction/16247'),env,async(url,init)=>{
+    calls++;
+    assert.equal(url,'https://api.torn.com/v2/faction/16247/members?striptags=true');
+    assert.equal(init.redirect,'manual');
+    assert.equal(init.headers.Authorization,'ApiKey '+env.TORN_API_KEY);
+    return new Response(null,{status:302,headers:{Location:'https://unexpected.example/?key='+env.TORN_API_KEY}});
+  });
+  assert.equal(calls,1);
+  assert.equal(response.status,502);
+  const body=await response.json();
+  assert.equal(body.error.upstream_status,302);
+  assert.equal(body.error.upstream_origin,'https://api.torn.com');
+  assert.match(body.error.message,/redirect/);
+  assert.ok(!JSON.stringify(body).includes(env.TORN_API_KEY));
 });

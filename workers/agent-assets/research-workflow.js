@@ -53,7 +53,7 @@ export async function runResearchJob(payload, env, fetcher=fetch) {
   // HTTP auth is not bypassed by a request parameter; this internal module is only
   // invoked after Cloudflare authorizes the Workflow instance creation.
   const response=await researchRoute(url,env,fetcher);
-  if(!response.ok)return { ...(await response.json()),status:response.status };
+  if(!response.ok)return { ...(await response.json()),status:response.status,http_status:response.status };
   const isWorkbook=payload.operation==='faction_export';
   const bytes=new Uint8Array(await response.arrayBuffer());
   if(!isWorkbook && bytes.length<=MAX_OUTPUT)return {ok:true,format:'json',data:JSON.parse(new TextDecoder().decode(bytes))};

@@ -52,8 +52,13 @@ async function upstream(provider, path, params, env, fetcher) {
   if (provider === 'ffscouter' || (provider === 'torn' && !path.startsWith('/v2/'))) url.searchParams.set('key',key);
   else headers.Authorization = 'ApiKey ' + key;
   let response, body;
-  try { response = await fetcher(url.toString(), { method:'GET', headers, redirect:'error', signal:AbortSignal.timeout(15000) }); }
+  try { response = await fetcher(url.toString(), { method:'GET', headers, redirect:'manual', signal:AbortSignal.timeout(15000) }); }
   catch (e) { throw providerError(provider, 'Request failed before a response: ' + redact(e?.message || e?.name || 'Network error',env).slice(0,300), { endpoint:path }, e?.name === 'TimeoutError' ? 504 : 502); }
+  // Workers supports manual/follow, not redirect:'error'. Never forward credentials
+  // to a redirect destination, even when the provider changes its URL.
+  if (response.status >= 300 && response.status < 400) {
+    throw providerError(provider, 'Provider returned a redirect; request stopped to protect credentials. Check the configured provider endpoint.', { endpoint:path, upstream_status:response.status, upstream_origin:hosts[provider] });
+  }
   try { body = await response.json(); }
   catch { throw providerError(provider, 'Provider returned a non-JSON response.', { endpoint:path, upstream_status:response.status }, response.status === 429 ? 429 : 502); }
   if (!response.ok || body?.error) {

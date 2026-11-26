@@ -22,7 +22,7 @@ test('workflow uses existing Torn validation, credentials and error handling',as
     assert.equal(new URL(url).origin,'https://api.torn.com');assert.equal(init.headers.Authorization,'ApiKey torn-fixture');
     return Response.json({error:{code:5,error:'Slow down torn-fixture'}});
   });
-  assert.equal(result.ok,false);assert.equal(result.status,429);assert.ok(!JSON.stringify(result).includes('torn-fixture'));
+  assert.equal(result.ok,false);assert.equal(result.status,429);assert.equal(result.http_status,429);assert.ok(!JSON.stringify(result).includes('torn-fixture'));
 });
 test('workflow generates the existing XLSX without a public storage link',async()=>{
   const result=await runResearchJob({operation:'faction_export',faction_id:123,images:true},env,async(url)=>{
