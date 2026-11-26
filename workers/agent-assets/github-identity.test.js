@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
-import { isArtworkWorkflow } from './github-identity.js';
+import { artworkWorkflowError } from './github-identity.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'test', alg: 'RS256', use: 'sig' };
@@ -22,17 +22,17 @@ function jwt(overrides = {}, alg = 'RS256') {
 
 test('accepts only a signed, current identity for the designated upload workflow', async () => {
   const keys = async () => [jwk];
-  assert.equal(await isArtworkWorkflow(jwt(), keys, now), true);
-  assert.equal(await isArtworkWorkflow(jwt({ event_name: 'workflow_dispatch' }), keys, now), true);
+  assert.equal(await artworkWorkflowError(jwt(), keys, now), '');
+  assert.equal(await artworkWorkflowError(jwt({ event_name: 'workflow_dispatch' }), keys, now), '');
   for (const override of [
     { aud: 'wrong' }, { iss: 'https://example.org' }, { repository_id: '100' },
     { repository: 'another/SLINK-Browser-Extension' }, { ref: 'refs/heads/other' },
     { workflow_ref: claims.workflow_ref.replace('sync-r2-artwork', 'another') },
     { event_name: 'pull_request_target' }, { exp: now }, { nbf: now + 120 },
     { iat: now - 601 }, { iat: now + 45 }
-  ]) assert.equal(await isArtworkWorkflow(jwt(override), keys, now), false);
-  assert.equal(await isArtworkWorkflow(jwt({}, 'none'), keys, now), false);
-  assert.equal(await isArtworkWorkflow(jwt(), async () => [], now), false);
+  ]) assert.equal(await artworkWorkflowError(jwt(override), keys, now), 'identity-claims');
+  assert.equal(await artworkWorkflowError(jwt({}, 'none'), keys, now), 'identity-claims');
+  assert.equal(await artworkWorkflowError(jwt(), async () => [], now), 'github-key-not-found');
   const [header, payload] = jwt().split('.');
-  assert.equal(await isArtworkWorkflow(header + '.' + payload + '.AAAA', keys, now), false);
+  assert.equal(await artworkWorkflowError(header + '.' + payload + '.AAAA', keys, now), 'github-signature');
 });

@@ -9,7 +9,9 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function decodePart(value) {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('Invalid JWT encoding');
-  return Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), character => character.charCodeAt(0));
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  return Uint8Array.from(atob(padded), character => character.charCodeAt(0));
 }
 
 async function fetchKeys() {
@@ -46,21 +48,28 @@ function allowedClaims(claims, now) {
     claims.exp > claims.iat && claims.exp - claims.iat <= 600;
 }
 
-export async function isArtworkWorkflow(token, loadKeys = githubKeys, now = Math.floor(Date.now() / 1000)) {
-  if (token.length > 8192) return false;
+export async function artworkWorkflowError(token, loadKeys = githubKeys, now = Math.floor(Date.now() / 1000)) {
+  if (token.length > 8192) return 'invalid-credential';
   const parts = token.split('.');
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return 'invalid-credential';
   try {
     const [encodedHeader, encodedClaims, encodedSignature] = parts;
     const header = JSON.parse(decoder.decode(decodePart(encodedHeader)));
     const claims = JSON.parse(decoder.decode(decodePart(encodedClaims)));
-    if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !allowedClaims(claims, now)) return false;
-    const jwk = (await loadKeys()).find(key => key.kid === header.kid && key.kty === 'RSA' && key.use === 'sig');
-    if (!jwk) return false;
+    if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !allowedClaims(claims, now)) return 'identity-claims';
+    let keys;
+    try {
+      keys = await loadKeys();
+    } catch {
+      return 'github-keys-unavailable';
+    }
+    const jwk = keys.find(key => key.kid === header.kid && key.kty === 'RSA' && key.use === 'sig');
+    if (!jwk) return 'github-key-not-found';
     const key = await crypto.subtle.importKey('jwk', jwk, signatureAlgorithm, false, ['verify']);
-    return await crypto.subtle.verify(signatureAlgorithm, key, decodePart(encodedSignature),
+    const valid = await crypto.subtle.verify(signatureAlgorithm.name, key, decodePart(encodedSignature),
       new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`));
+    return valid ? '' : 'github-signature';
   } catch {
-    return false;
+    return 'invalid-credential';
   }
 }

@@ -1,4 +1,4 @@
-import { isArtworkWorkflow } from './github-identity.js';
+import { artworkWorkflowError } from './github-identity.js';
 
 const maxBytes = 4 * 1024 * 1024;
 const slug = '[a-z0-9]+(?:-[a-z0-9]+)*';
@@ -28,16 +28,16 @@ async function sha256(source) {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function hasUploadToken(request, expectedHash) {
+async function uploadCredentialError(request, expectedHash) {
   const match = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
-  if (!match) return false;
+  if (!match) return 'invalid-credential';
   const value = match[1];
-  if (!hexPattern.test(value)) return isArtworkWorkflow(value);
-  if (!hexPattern.test(expectedHash || '')) return false;
+  if (!hexPattern.test(value)) return artworkWorkflowError(value);
+  if (!hexPattern.test(expectedHash || '')) return 'invalid-credential';
   const hash = await sha256(new TextEncoder().encode(value));
   let mismatch = 0;
   for (let i = 0; i < hash.length; i++) mismatch |= hash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
-  return mismatch === 0;
+  return mismatch === 0 ? '' : 'invalid-credential';
 }
 
 function validateImage(bytes, extension) {
@@ -118,8 +118,11 @@ export default {
     if (!env.GRAPHICS_ASSETS) {
       return json({ ok: false, error: 'Configure the graphics bucket binding.' }, 503);
     }
-    if (!await hasUploadToken(request, env.ASSET_UPLOAD_TOKEN_SHA256)) {
-      return json({ ok: false, error: 'Supply a valid artwork upload token.' }, 401, { 'WWW-Authenticate': 'Bearer' });
+    const authError = await uploadCredentialError(request, env.ASSET_UPLOAD_TOKEN_SHA256);
+    if (authError) {
+      return json({ ok: false, error: 'Supply an artwork upload password or valid GitHub workflow identity.' },
+        authError === 'github-keys-unavailable' ? 503 : 401,
+        { 'WWW-Authenticate': 'Bearer', 'X-SLINK-Upload-Auth': authError });
     }
     if (isHealth && request.method === 'GET') return json({ ok: true, service: 'slink-agent-assets', maxBytes });
     if (!isAsset || request.method !== 'PUT') {
