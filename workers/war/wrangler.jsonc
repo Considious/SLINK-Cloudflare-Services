@@ -5,6 +5,15 @@
   "compatibility_date": "2026-08-26",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
+  "build": {
+    "command": "node publish-theme-catalog.mjs"
+  },
+  "r2_buckets": [
+    {
+      "binding": "THEME_CATALOG_ASSETS",
+      "bucket_name": "slink-graphics-assets"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

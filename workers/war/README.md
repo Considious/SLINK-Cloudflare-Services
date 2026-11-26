@@ -45,17 +45,20 @@ After deployment, open `/api/health`. A ready response reports the D1 database, 
 
 ## Central theme catalog
 
-`GET /api/themes` reads [`../../themes/catalog.json`](../../themes/catalog.json)
-from the repository's raw GitHub URL, validates every field, and returns only
-declarative visual tokens. Remote JavaScript, HTML, raw CSS, URLs, and commands
-are rejected. Cloudflare's fetch cache reduces GitHub reads, and each extension
-keeps its last-known-good catalog in `chrome.storage.local`.
+[`themes/catalog.json`](../../themes/catalog.json) is the source of truth. The
+production Workers Builds deploy uploads it to the existing private
+`slink-graphics-assets` bucket before deploying the Worker. It publishes only
+the catalog JSON at a key derived from its SHA-256 hash. Each deployment reads
+its own revision, including after a Worker rollback.
 
-The Worker also supports an optional Workers KV binding named `THEME_CATALOG`.
-When that binding is declared with a real namespace ID, successful GitHub
-catalog revisions are retained under `themes:catalog:current`. KV is an
-optimization and durable fallback, not a deployment prerequisite; the checked-in
-configuration intentionally does not contain a fake namespace ID.
+Add `themes/catalog.json` to the War Worker's existing **Settings → Builds →
+Build watch paths** includes so a catalog-only commit triggers a deployment.
+The existing build token needs Workers R2 Storage edit access.
+
+`GET /api/themes` validates the R2 copy and uses the same bundled revision if
+the copy is unavailable or differs. The endpoint returns `source: "r2"` when
+the R2 copy is in use. Extension clients continue to keep their last known
+catalog locally. The catalog and Worker deployment do not publish image files.
 
 ## Public graphics delivery
 

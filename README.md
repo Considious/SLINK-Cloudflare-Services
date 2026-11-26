@@ -10,7 +10,7 @@ own repositories and do not trigger these deployments.
 | --- | --- | --- | --- | --- |
 | `slinkyleveling` | `workers/leveling` | `npm test` | `npx wrangler deploy` | `workers/leveling/*` |
 | `slinkcontributionworker` | `workers/contribution` | `npm test` | `npx wrangler deploy` | `workers/contribution/*` |
-| `slinkwarworker` | `workers/war` | `npm test` | `npx wrangler deploy` | `workers/war/*` |
+| `slinkwarworker` | `workers/war` | `npm test` | `npx wrangler deploy` | `workers/war/*`, `themes/catalog.json` |
 
 Set each Worker's **Root directory** and **Build watch paths** in Cloudflare
 under **Settings → Build**. Build watch paths are Git integration settings and

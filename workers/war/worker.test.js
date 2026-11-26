@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { registerHooks } from 'node:module';
+import { themeCatalogText, themeCatalogObjectKey } from './theme-catalog-source.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,9 +165,6 @@ test('publishes only declarative visual data in the central theme catalog', () =
   const worker = fs.readFileSync(path.resolve(directory, 'worker.js'), 'utf8');
   assert.match(worker, /\/api\/themes/);
   assert.match(worker, /validateThemeCatalog/);
-  assert.match(worker, /THEME_CATALOG_KV_KEY/);
-  assert.match(worker, /catalogUrl = force \?/);
-  assert.match(worker, /cacheTtl:0/);
   assert.match(worker, /THEME_DIRECT_ASSETS/);
   assert.match(worker, /healthRoses:healthAssets/);
   assert.match(worker, /healthBlood:healthAssets/);
@@ -277,5 +275,32 @@ test('returns an uncacheable error for missing or corrupt R2 objects', async () 
     assert.equal(response.status, 503);
     assert.equal(response.headers.get('Cache-Control'), 'no-store');
     assert.equal(response.headers.get('ETag'), null);
+  }
+});
+
+test('serves the exact catalog uploaded for this deployment from private R2', async () => {
+  const expectedKey = await themeCatalogObjectKey();
+  const env = { THEME_CATALOG_ASSETS:{ async get(key) {
+    assert.equal(key, expectedKey);
+    return { body:new Response(themeCatalogText).body, size:Buffer.byteLength(themeCatalogText) };
+  } } };
+  const response = await worker.fetch(new Request('https://worker.example/api/themes?refresh=1'), env);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.source, 'r2');
+  assert.equal(data.catalog.revision, JSON.parse(themeCatalogText).revision);
+  assert.ok(data.catalog.themes.some(theme => theme.id === 'gothic-valentines'));
+});
+
+test('serves the full bundled catalog when the R2 copy is unavailable or mismatched', async () => {
+  const corrupt = { body:new Response('{}').body, size:2 };
+  for (const object of [null, corrupt]) {
+    const env = { THEME_CATALOG_ASSETS:{ get:async () => object } };
+    const response = await worker.fetch(new Request('https://worker.example/api/themes'), env);
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    assert.equal(data.source, 'bundled-fallback');
+    assert.equal(data.catalog.revision, JSON.parse(themeCatalogText).revision);
+    assert.ok(data.catalog.themes.some(theme => theme.id === 'gothic-valentines'));
   }
 });

@@ -1,5 +1,6 @@
 import '../shared/errors.js';
 import { servePublicAsset } from './public-assets.js';
+import { themeCatalogText, themeCatalogObjectKey } from './theme-catalog-source.js';
 import { DurableObject } from 'cloudflare:workers';
 import {
   ADMIN_SCOPE,
@@ -33,12 +34,9 @@ const CLIENT_RETENTION_MS = 2 * 60 * 1000;
 const ATTACK_RETENTION_SECONDS = 2 * 24 * 60 * 60;
 const FLUSH_DELAY_MS = 10 * 60 * 1000;
 const encoder = new TextEncoder();
-const THEME_CATALOG_URL = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/catalog.json';
 const THEME_ASSET_ORIGIN = 'https://raw.githubusercontent.com/Considious/SLINK-Cloudflare-Services/main/themes/assets/';
 const THEME_DIRECT_ASSETS = Object.freeze(['background', 'iconSheet', 'brandIcon', 'chatIcon', 'frame', 'roseCorner', 'badgeIvory', 'panelSmoke', 'panelDamask', 'panelCrimson', 'dividerLeft', 'dividerMiddle', 'dividerRight']);
 const THEME_HEALTH_STATES = Object.freeze(['100', '075', '050', '025', '004']);
-const THEME_CATALOG_KV_KEY = 'themes:catalog:current';
-const THEME_REFRESH_MS = 15 * 60 * 1000;
 const THEME_TOKEN_NAMES = new Set([
   '--slink-bg', '--slink-bg-raised', '--slink-bg-control', '--slink-surface', '--slink-card',
   '--slink-control', '--slink-border', '--slink-border-soft', '--slink-text', '--slink-muted',
@@ -180,27 +178,21 @@ function validateThemeCatalog(value) {
   return { schemaVersion:1, revision, updatedAt:String(value.updatedAt || ''), themes };
 }
 
-async function fetchThemeCatalog(env, force = false) {
-  const now = Date.now();
-  if (env.THEME_CATALOG && !force) {
-    const cached = await env.THEME_CATALOG.get(THEME_CATALOG_KV_KEY, 'json').catch(() => null);
-    if (cached?.catalog && now - Number(cached.fetchedAt) < THEME_REFRESH_MS) return { catalog:validateThemeCatalog(cached.catalog), source:'kv' };
+async function fetchThemeCatalog(env) {
+  if (env.THEME_CATALOG_ASSETS) {
+    try {
+      const key = await themeCatalogObjectKey();
+      const object = await env.THEME_CATALOG_ASSETS.get(key);
+      if (!object?.body) throw new Error('The theme catalog object is missing.');
+      const response = new Response(object.body, { headers:{ 'Content-Length':String(object.size) } });
+      const text = await readLimitedResponseText(response, MAX_BODY_BYTES);
+      if (text !== themeCatalogText) throw new Error('The theme catalog does not match this deployment.');
+      return { catalog:validateThemeCatalog(JSON.parse(text)), source:'r2' };
+    } catch (error) {
+      log('warn', 'theme catalog R2 read failed', { error:errorMessage(error) });
+    }
   }
-  const catalogUrl = force ? `${THEME_CATALOG_URL}?refresh=${now}` : THEME_CATALOG_URL;
-  const response = await fetch(catalogUrl, {
-    headers:{ Accept:'application/json', 'User-Agent':'SLINK-War-Theme-Catalog' },
-    cf:force
-      ? { cacheEverything:false, cacheTtl:0 }
-      : { cacheEverything:true, cacheTtl:Math.floor(THEME_REFRESH_MS / 1000) }
-  });
-  if (!response.ok) throw new Error(`Theme catalog fetch failed (${response.status}).`);
-  const text = await readLimitedResponseText(response, MAX_BODY_BYTES);
-  const catalog = validateThemeCatalog(JSON.parse(text));
-  if (env.THEME_CATALOG) {
-    await env.THEME_CATALOG.put(THEME_CATALOG_KV_KEY, JSON.stringify({ fetchedAt:now, catalog }))
-      .catch(error => log('warn', 'theme KV update failed', { error:errorMessage(error) }));
-  }
-  return { catalog, source:env.THEME_CATALOG ? 'github+kv' : 'github' };
+  return { catalog:validateThemeCatalog(JSON.parse(themeCatalogText)), source:'bundled-fallback' };
 }
 
 function sessionView(session) {
@@ -986,14 +978,14 @@ async function handleRequest(request, env) {
           : 'missing';
       }
     } catch { database = 'error'; }
-    return json({ ok:true, version:WORKER_VERSION, database, automatic_access:{ faction_id:SLINKY_FACTION_ID, slink_war:automaticAccess }, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured', theme_catalog:env.THEME_CATALOG ? 'github+kv' : 'github' });
+    return json({ ok:true, version:WORKER_VERSION, database, automatic_access:{ faction_id:SLINKY_FACTION_ID, slink_war:automaticAccess }, coordinator:env.WAR_COORDINATOR ? 'configured' : 'not configured', session_secret:env.SESSION_SECRET ? 'configured' : 'not configured', theme_catalog:env.THEME_CATALOG_ASSETS ? 'r2' : 'bundled-fallback' });
   }
   if (request.method === 'GET' && url.pathname === '/api/terms') {
     return json({ ok:true, version:WORKER_VERSION, terms:{ version:TERMS_VERSION, sha256:TERMS_SHA256, url:TERMS_URL, summary:WAR_TERMS_SUMMARY } });
   }
   if (request.method === 'GET' && url.pathname === '/api/themes') {
     try {
-      const result = await fetchThemeCatalog(env, url.searchParams.get('refresh') === '1');
+      const result = await fetchThemeCatalog(env);
       return json({ ok:true, version:WORKER_VERSION, source:result.source, catalog:result.catalog });
     } catch (error) {
       return json({ ok:false, error:errorMessage(error) }, 503);
