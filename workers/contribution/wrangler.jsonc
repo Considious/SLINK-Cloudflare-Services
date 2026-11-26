@@ -24,6 +24,10 @@
   ],
   "r2_buckets": [
     {
+      "binding": "GRAPHICS_ASSETS",
+      "bucket_name": "slink-graphics-assets"
+    },
+    {
       "binding": "USER_BACKUPS",
       "bucket_name": "slink-mugging-data"
     },

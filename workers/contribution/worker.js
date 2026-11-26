@@ -1,4 +1,5 @@
 import '../shared/errors.js';
+import { JACK_ARTWORK_PATH, serveJackArtwork } from './jack-artwork.js';
 /**
  * SLINK Contribution Service
  *
@@ -82,6 +83,9 @@ const worker = {
         }
 
         const url = new URL(request.url);
+        if (url.pathname.startsWith(JACK_ARTWORK_PATH)) {
+            return serveJackArtwork(request, url, env, { permissionSession, loadPermissions, hasScope, json:jsonResponse });
+        }
         const backup=await handleFairFightBackup(request,env,{session:permissionSession,json:jsonResponse,hasScope});
         if(backup)return backup;
 
