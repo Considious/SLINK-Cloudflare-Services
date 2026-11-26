@@ -45,7 +45,7 @@ existing object's metadata does not match. The uploader never replaces that obje
 
 This credential allows uploads only. Production asset delivery and entitlement
 checks stay on the serving Worker. Torn API research uses a separate approval
-and credential flow.
+and credential flow (see below).
 
 ## Browser Extension repository sync
 
@@ -58,3 +58,62 @@ Place image files under `r2-assets/` in the Browser Extension repository and
 push to `main`. The workflow adds the SHA-256 to each filename if needed and
 uses the path beneath `r2-assets/` as the R2 object key. Existing objects are
 retained if a file is removed from Git.
+
+
+## Private Torn research API
+
+Research routes are separate from artwork uploads; neither a GitHub Actions
+identity nor an artwork upload password grants research access. Do not expose
+the research token to extension users, distribute it in scripts, or commit it.
+
+Set these **Cloudflare Worker secrets** on the existing slink-agent-assets Worker:
+
+| Secret | Value |
+| --- | --- |
+| RESEARCH_TOKEN_SHA256 | SHA-256 of a separate randomly generated 64-character lowercase hex token; retain the original token privately |
+| TORN_API_KEY | Dedicated Torn API key, with only the selections required for your work |
+| KAL_API_KEY | Torn public API key registered with KAL, with required consent accepted |
+| FFSCOUTER_API_KEY | Torn API key separately registered with FFScouter and approved under its data policy |
+
+Use Authorization: Bearer <original research token> on requests below. Set
+secrets through Cloudflare or npx wrangler secret put SECRET_NAME from this
+directory. Do not pass the key through a Worker query string. A Torn v1 or
+FFScouter upstream call may require the provider key in the outbound query;
+do not enable full upstream URL logging. Torn v2 and KAL use ApiKey headers.
+All research routes are read-only, fixed-origin, and no-store.
+
+| GET route | Purpose |
+| --- | --- |
+| /v1/research/health | Shows which provider keys are configured, never their values |
+| /v1/research/torn/v2/faction/46978/members?striptags=true | Official Torn v2 call; replace the path and query for other supported selections |
+| /v1/research/torn/user/3853023?selections=basic | Official Torn v1 example |
+| /v1/research/kal/user/3853023/loadout | KAL latest observed equipment |
+| /v1/research/kal/faction/46978/loadouts | KAL stored faction roster and loadouts |
+| /v1/research/ffscouter/stats?ids=3853023,2032147 | FFScouter estimates for up to 100 unique IDs |
+| /v1/research/faction/46978 | Combined JSON, with current Torn member IDs and per-provider coverage |
+| /v1/research/faction/46978/export.xlsx | Excel workbook, with rarity fills, stat and loadout timestamps, equipment detail and artwork URLs |
+
+The faction ID above is an example, not a default. The export uses Torn as
+the roster source and joins by numeric player ID. KAL's faction snapshot
+can lag Torn's roster; the Worker attempts up to 20 individual lookups for missing members (four at a time), stopping further batches on rate-limit errors. Any remaining unverified rows are explicitly marked and can be checked using the single-player KAL route. Partial provider failures
+do not erase valid roster rows; check coverage columns and Read me warnings.
+FFScouter estimates are not exact stats and fair fight depends on the key owner.
+
+Example (shell; SLINK_RESEARCH_TOKEN must already be set locally):
+
+```sh
+curl --fail-with-body -H "Authorization: Bearer ${SLINK_RESEARCH_TOKEN}" \
+  "https://YOUR-WORKER/v1/research/faction/46978/export.xlsx" \
+  --output faction-46978.xlsx
+```
+
+Append ?images=true to the Excel export route for an additional Preview column in Item artwork. The previews use the Excel IMAGE function (Excel for Microsoft 365 or Excel 2024, external images permitted). They are not embedded; the default export includes links only for compatibility. No API credentials are used in the image URLs.
+
+Run npm test before merging. The Worker does not create any new R2 bucket,
+database, scheduled task or workflow. Calls are on demand; use provider quotas
+and avoid concurrent export loops. The token is for a single trusted operator,
+not an entitlement mechanism for a public service. A global distributed rate
+limiter is not included; keep request volume within your provider limits.
+
+Provider docs: https://www.torn.com/swagger.php, https://kalends.dev/api-docs,
+https://ffscouter.com/.

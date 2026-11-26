@@ -1,4 +1,5 @@
 import { artworkWorkflowError } from './github-identity.js';
+import { researchFetch } from './research.js';
 
 const maxBytes = 4 * 1024 * 1024;
 const slug = '[a-z0-9]+(?:-[a-z0-9]+)*';
@@ -112,6 +113,7 @@ async function putAsset(request, bucket, key, expectedHash, extension) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === '/v1/research' || url.pathname.startsWith('/v1/research/')) return researchFetch(request, env);
     const isAsset = url.pathname.startsWith('/v1/assets/');
     const isHealth = url.pathname === '/v1/health';
     if (url.search || (!isAsset && !isHealth)) return json({ ok: false, error: 'Unknown upload API route.' }, 404);
