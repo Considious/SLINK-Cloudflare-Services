@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { registerHooks } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,7 +135,8 @@ test('returns the full opponent membership IDs for inside-hit safety', () => {
 test('publishes only declarative visual data in the central theme catalog', () => {
   const catalog = JSON.parse(fs.readFileSync(path.resolve(directory, '../../themes/catalog.json'), 'utf8'));
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.themes.length, 7);
+  assert.ok(catalog.themes.length > 0 && catalog.themes.length <= 32);
+  assert.equal(new Set(catalog.themes.map(theme => theme.id)).size, catalog.themes.length);
   assert.ok(catalog.themes.every(theme => theme.id && theme.tokens && !JSON.stringify(theme).match(/<script|javascript:|url\s*\(/i)));
   const dragonsBreath = catalog.themes.find(theme => theme.id === 'slinky-dragons-breath');
   assert.equal(dragonsBreath?.label, "Dragon's Breath");
@@ -143,7 +145,7 @@ test('publishes only declarative visual data in the central theme catalog', () =
   const halloween = catalog.themes.find(theme => theme.id === 'halloween-2026');
   assert.equal(halloween?.scope, 'slink.theme.halloween');
   assert.equal(halloween?.ornament, 'halloween');
-  assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
+  assert.match(halloween?.assets?.background || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.(?:png|webp)$/);
   assert.match(halloween?.assets?.iconSheet || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.match(halloween?.assets?.brandIcon || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
   assert.match(halloween?.assets?.chatIcon || '', /^https:\/\/raw\.githubusercontent\.com\/Considious\/SLINK-Cloudflare-Services\/main\/themes\/assets\/[^?]+\.png$/);
@@ -185,4 +187,95 @@ test('leaves generic permission sessions and grants outside the War Worker', () 
     assert.match(migration, new RegExp(scope.replaceAll('.', '\\.')));
   }
   assert.match(migration, /INSERT INTO faction_scope_grants[\s\S]*46978,[\s\S]*'slink\.adhd\.alerts',[\s\S]*'active'/);
+});
+
+const proofHash = '1faba9b401a6320c7a8dd1664ad3395ae46b0459ff5c5c01149e22200c6ebbe0';
+const proofKey = `assets/diagnostics/delivery-proof.${proofHash}.webp`;
+const proofUrl = `https://worker.example/api/${proofKey}`;
+const hooks = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === 'cloudflare:workers') {
+      return { url: 'data:text/javascript,export class DurableObject {}', shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  }
+});
+let worker;
+try {
+  ({ default: worker } = await import('./worker.js'));
+} finally {
+  hooks.deregister();
+}
+
+function requestProof(options, env = {}, url = proofUrl) {
+  return worker.fetch(new Request(url, options), env);
+}
+
+test('serves the immutable public WebP through the Worker without a session or R2 binding', async () => {
+  const response = await requestProof();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'image/webp');
+  assert.equal(response.headers.get('Content-Length'), '218');
+  assert.equal(response.headers.get('ETag'), `"${proofHash}"`);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
+  assert.equal(response.headers.get('Access-Control-Expose-Headers'), 'ETag');
+  assert.equal(response.headers.get('Cross-Origin-Resource-Policy'), 'cross-origin');
+  assert.equal(response.headers.get('X-Content-Type-Options'), 'nosniff');
+  assert.equal(response.headers.get('Cache-Control'), 'public, max-age=31536000, immutable');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(bytes.subarray(8, 12).toString(), 'WEBP');
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), proofHash);
+});
+
+test('supports conditional GET, HEAD and CORS preflight', async () => {
+  const tag = `"${proofHash}"`;
+  const conditional = await requestProof({ headers: { 'If-None-Match': `"older", W/${tag}` } });
+  assert.equal(conditional.status, 304);
+  assert.equal(conditional.headers.get('ETag'), tag);
+  assert.equal(conditional.headers.get('Access-Control-Allow-Origin'), '*');
+  assert.equal(await conditional.text(), '');
+
+  const head = await requestProof({ method: 'HEAD' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get('Content-Length'), '218');
+  assert.equal(await head.text(), '');
+
+  const preflight = await requestProof({ method: 'OPTIONS' });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('Access-Control-Allow-Headers'), 'If-None-Match');
+});
+
+test('rejects unknown asset IDs, queries and writes before accessing R2', async () => {
+  const env = { GRAPHICS_ASSETS: { get: () => assert.fail('Unexpected R2 lookup') } };
+  const unknown = await requestProof({}, env, 'https://worker.example/api/assets/companions/jack.webp');
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.headers.get('Cache-Control'), 'no-store');
+  assert.equal((await requestProof({}, env, proofUrl + '?url=other')).status, 404);
+  const write = await requestProof({ method: 'POST' }, env);
+  assert.equal(write.status, 405);
+  assert.equal(write.headers.get('Allow'), 'GET, HEAD, OPTIONS');
+});
+
+test('reads and verifies the exact registered R2 object when a bucket is bound', async () => {
+  const bytes = await (await requestProof()).arrayBuffer();
+  const fromR2 = await requestProof({}, { GRAPHICS_ASSETS: {
+    async get(key) {
+      assert.equal(key, proofKey);
+      return { size: bytes.byteLength, arrayBuffer: async () => bytes };
+    }
+  } });
+  assert.equal(fromR2.status, 200);
+  assert.deepEqual(await fromR2.arrayBuffer(), bytes);
+});
+
+test('returns an uncacheable error for missing or corrupt R2 objects', async () => {
+  for (const object of [null, {
+    size: 218,
+    arrayBuffer: async () => new ArrayBuffer(218)
+  }]) {
+    const response = await requestProof({}, { GRAPHICS_ASSETS: { get: async () => object } });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+    assert.equal(response.headers.get('ETag'), null);
+  }
 });

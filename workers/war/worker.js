@@ -1,4 +1,5 @@
 import '../shared/errors.js';
+import { servePublicAsset } from './public-assets.js';
 import { DurableObject } from 'cloudflare:workers';
 import {
   ADMIN_SCOPE,
@@ -966,6 +967,7 @@ async function logsResponse(env, stub, warId, limit, includeStored = true) {
 
 async function handleRequest(request, env) {
   const url = new URL(request.url);
+  if (url.pathname.startsWith('/api/assets/')) return servePublicAsset(request, url, env.GRAPHICS_ASSETS);
   if (request.method === 'OPTIONS') return new Response(null, { status:204, headers:corsHeaders() });
   if (request.method === 'GET' && url.pathname === '/api/health') {
     let database = 'not configured';

@@ -56,3 +56,25 @@ When that binding is declared with a real namespace ID, successful GitHub
 catalog revisions are retained under `themes:catalog:current`. KV is an
 optimization and durable fallback, not a deployment prerequisite; the checked-in
 configuration intentionally does not contain a fake namespace ID.
+
+## Public graphics delivery
+
+After deploying the existing War Worker, request this path on its existing origin.
+
+```text
+/api/assets/diagnostics/delivery-proof.1faba9b401a6320c7a8dd1664ad3395ae46b0459ff5c5c01149e22200c6ebbe0.webp
+```
+
+The 64 × 64 WebP is a bundled, unrestricted diagnostic graphic. The route uses
+a fixed public registry, immutable cache headers, a SHA-256 ETag, and CORS for
+GET and HEAD. A browser client can pin this URL and SHA-256 to test fetching
+from its background context and rendering inside Torn. Open the URL directly
+to check delivery, then test the same bytes in the actual extension surface.
+
+No additional Worker or bucket is needed for the bundled proof. To exercise
+private R2 delivery on the same route, upload the exact WebP bytes to the key
+shown above with the `/api/` prefix removed, then declare the bucket binding
+`GRAPHICS_ASSETS` in the deployment's Wrangler configuration. The Worker checks
+size and checksum before serving a bound object. The public route may only
+register unrestricted artwork. Entitled artwork requires a session-checked
+delivery route.
