@@ -17,5 +17,8 @@
       "binding": "SLINK_RESEARCH_WORKFLOW",
       "class_name": "SlinkAgentResearch"
     }
-  ]
+  ],
+  "vars": {
+    "RESEARCH_DOWNLOAD_ORIGIN": "https://slink-agent-assets.richard-johnson554.workers.dev"
+  }
 }

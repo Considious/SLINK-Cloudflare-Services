@@ -1,4 +1,5 @@
 import { researchRoute } from './research.js';
+import { saveResearchExport } from './research-download.js';
 
 const ROOT = 'https://internal.invalid/v1/research';
 const MAX_OUTPUT = 700 * 1024; // comfortably below Workflows' 1 MiB non-stream result ceiling
@@ -56,8 +57,12 @@ export async function runResearchJob(payload, env, fetcher=fetch) {
   if(!response.ok)return { ...(await response.json()),status:response.status,http_status:response.status };
   const isWorkbook=payload.operation==='faction_export';
   const bytes=new Uint8Array(await response.arrayBuffer());
-  if(!isWorkbook && bytes.length<=MAX_OUTPUT)return {ok:true,format:'json',data:JSON.parse(new TextDecoder().decode(bytes))};
+  if(isWorkbook){
+    try { return await saveResearchExport(bytes,payload.faction_id,env); }
+    catch(e) { return error('EXPORT_STORAGE_ERROR','Could not store the temporary Excel export. '+(e?.message?.startsWith('Configure the existing')||e?.message?.startsWith('Set RESEARCH_DOWNLOAD_ORIGIN')?e.message:'Check the existing R2 binding and retry.')); }
+  }
+  if(bytes.length<=MAX_OUTPUT)return {ok:true,format:'json',data:JSON.parse(new TextDecoder().decode(bytes))};
   const encoded=await gzipBase64(bytes);
   if(encoded.length>MAX_OUTPUT)return error('OUTPUT_TOO_LARGE','Compressed output exceeds the Workflow result budget. Use smaller individual lookups or the authenticated HTTP export.',{bytes:bytes.length,compressed_base64_bytes:encoded.length});
-  return {ok:true,format:isWorkbook?'xlsx':'json',encoding:'gzip+base64',filename:isWorkbook?'faction-'+payload.faction_id+'-intelligence.xlsx':undefined,bytes:bytes.length,data:encoded};
+  return {ok:true,format:'json',encoding:'gzip+base64',bytes:bytes.length,data:encoded};
 }

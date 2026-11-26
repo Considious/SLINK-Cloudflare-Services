@@ -144,9 +144,15 @@ Accepted JSON parameter examples:
 
 Results contain ok, format, and data; errors contain ok:false, status where
 available, and descriptive error details. Ordinary JSON is returned directly.
-XLSX and large JSON are gzip-compressed then base64 encoded; decode base64,
-then gunzip, to retrieve the original bytes. No public link or R2 write.
-If compressed output exceeds the conservative 700 KiB result budget, use
-smaller requests or direct HTTP export. Workflows persist results privately
-within the Cloudflare account until retention expiry; access accordingly.
+XLSX results contain filename, bytes, download_url, and expires_at. Click the
+download_url to download the original workbook; it is a random bearer link
+valid for one hour, not a public bucket URL. Anyone with the link can use it
+until expiry; treat it as confidential and avoid logging full download URLs.
+The original workbook is temporarily stored under research-exports/v1/ in
+the existing private GRAPHICS_ASSETS bucket. Configure an R2 lifecycle rule
+to expire only that prefix after one day; never apply this rule to artwork.
+RESEARCH_DOWNLOAD_ORIGIN is the HTTPS origin of this Worker.
+Large JSON (not XLSX) is gzip+base64 encoded; if compressed JSON exceeds the
+700 KiB result budget, use smaller requests. Workflow results are retained
+according to Cloudflare account/instance settings.
 Provider errors are not automatically retried to avoid consuming API quotas.
